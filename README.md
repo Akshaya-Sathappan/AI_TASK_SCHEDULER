@@ -161,7 +161,8 @@ use real LLM calls. Rerun `make bench` after the others to regenerate every plot
 | fault tolerance (E6) | 6 requests, 3 workers killed, 20 retries, 4 lost attempts recovered: all succeeded, 0 duplicate commits; on real Groq a killed worker's task was retried and the request succeeded | Docker stack; real Groq |
 | real requests (E7) | parallel beat a sequential agent by 23 % when the rate limit allowed 2 calls at once (10.5 s vs 13.6 s); one large call was fastest (4–7 s); the planner is 31–52 % of latency on light requests | Groq free tier, 1 run per mode |
 | expansion (E8) | splicing takes 1 ms and adds no planner calls; with no item count given, expansion found 10 items against a static plan's guessed 5 | Groq free tier |
-| accuracy vs one LLM call (E9) | not run yet: `make bench-e9` writes it to `summary.md` | public datasets, Groq |
+| accuracy vs one LLM call (E9) | initial run, 3 questions per dataset: 7 / 9 correct for both modes; the single call answered in ~1 s vs 5–29 s and used 8–23x fewer tokens | public datasets, Groq free tier |
+| workflow latency breakdown | 84 % of workflow latency was 429 retries and pauses; LLM calls 9 %, planner 7 %, atsd dispatch 0.2 % | the 9 E9 workflow requests |
 
 E7 and E8 are single runs on a rate-limited free tier: indicative, not statistically tight.
 

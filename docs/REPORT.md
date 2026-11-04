@@ -275,15 +275,71 @@ matched within 10 %, otherwise an exact match after normalisation; token-F1 is r
 Results are broken down by the number of entities, where parallel lookups should matter most
 (`bench/e9.py`, `make bench-e9`, D57).
 
-**Results: not run yet.** `make up-llm && make bench-e9` writes the table and `e9_accuracy.png` to
-`bench/results/`. On Groq's free tier about 30 questions × 2 modes fit in one day's token budget; the run
-stops at the budget and continues on the next day. LLMCompiler's agents used a search tool; here both
-modes answer from model knowledge (D15), so the scores compare this project's two modes with each other,
-not with the paper's results.
+**Initial results: 3 questions per dataset** (9 questions × 2 modes, Groq `openai/gpt-oss-120b`, free
+tier, one run each). Too few to separate the modes on accuracy; they show the shape of the comparison
+and where the time goes, and the run continues with more questions (`make bench-e9 N=…` resumes).
+
+| dataset | mode | correct | mean F1 | p50 latency | p95 latency | median tokens | cost |
+|---|---|---|---|---|---|---|---|
+| ParallelQA | workflow | 3 / 3 | 1.00 | 5.6 s | 58.6 s | 4,811 | $0.0047 |
+| | single call | 2 / 3 | 0.78 | 1.2 s | 1.3 s | 638 | $0.0008 |
+| HotpotQA comparison | workflow | 1 / 3 | 0.60 | 12.7 s | 17.1 s | 4,709 | $0.0044 |
+| | single call | 2 / 3 | 0.67 | 0.9 s | 0.9 s | 374 | $0.0005 |
+| Movie recommendation | workflow | 3 / 3 | 1.00 | 28.9 s | 170.5 s | 7,353 | $0.0080 |
+| | single call | 3 / 3 | 1.00 | 1.0 s | 2.5 s | 320 | $0.0003 |
+| **all** | workflow | **7 / 9** | 0.87 | | | | $0.0171 |
+| | single call | **7 / 9** | 0.82 | | | | $0.0016 |
+
+Every answer was read from its `Final answer:` line; no run failed and no fallback extraction was needed.
+
+- **Accuracy: a tie so far** (7 of 9 each), with different misses: the workflow got all ParallelQA and
+  movie questions right and 1 of 3 HotpotQA comparisons; the single call missed one ParallelQA and one
+  HotpotQA question. The one 4-entity ParallelQA question was answered correctly only by the workflow,
+  the pattern the experiment is designed to test, but a single question is not evidence. HotpotQA's exact
+  match is strict (a name with an extra title counts as wrong), so its misses still need to be read before
+  calling them errors.
+- **Speed and cost: the single call wins clearly on short-answer questions**: about 1 s against 5–29 s
+  (median), and 8–23x fewer tokens (about 11x less cost in total). The workflow pays for a planner call
+  and one call per task, and on this tier its tail is dominated by rate limiting (below).
+- LLMCompiler's agents used a search tool; here both modes answer from model knowledge (D15), so the
+  scores compare this project's two modes with each other, not with the paper's results.
+
+### Where the workflow's latency goes
+
+`bench/breakdown.py` (`make latency-breakdown`) walks each workflow request's critical path in atsd's event
+log and splits it into the planner, waiting for a slot or a paused capability, retries and backoff, worker
+pickup, the LLM call, and submit/poll. Checked on a real atsd log first: the parts sum to the span atsd
+recorded. For the 9 E9 workflow requests (328.7 s in total, 23 capability pauses after a 429):
+
+| part | seconds | share |
+|---|---|---|
+| retries + backoff | 219.5 | **67 %** |
+| slot wait / 429 pause | 56.1 | **17 %** |
+| LLM call | 28.8 | 9 % |
+| planner | 21.8 | 7 % |
+| submit + poll | 1.8 | 1 % |
+| pickup (atsd → worker over Redis) | 0.6 | **0.2 %** |
+
+- **84 % of the workflow's latency is the provider's rate limit**, not work: one workflow request uses
+  4.7–7.4k tokens, nearly the whole 8,000 tokens per minute the free tier allows, so the next call or a
+  parallel task gets a 429 and atsd pauses the capability (D39) and backs off (D45).
+- **The runtime's own cost is negligible**: worker pickup is 0.6 s of 328.7 s, consistent with E3 and the
+  E5 latency profile (1–3 ms per step).
+- **Without rate limiting, requests take 3–6 s**: the four requests that saw no 429 took 3.3–5.6 s
+  (planner 34–51 % of that). This is measured on those four requests, not a projection for the others.
+- The slowest request (186 s) used an expand task (`t6 → t6.4 → t6.join` on its critical path): 119 s of
+  retries and 55 s of pauses for a short-answer question.
+
+Next steps the breakdown points to, in order of expected effect: run the executors on
+`openai/gpt-oss-20b`, which has its own per-minute budget on Groq, so task calls stop competing with the
+planner (a configuration change); check whether the doubling backoff (D45) waits longer than Groq's
+`retry-after` hints; send fewer tokens per request (shorter prompts, `key_points` instead of full results
+as inputs); then rerun E9 with more questions to measure each change.
 
 ## 4. Limitations
 
-- **Rate limits dominate real latency.** Groq's on_demand tier for gpt-oss-120b allows 8,000 tokens per
+- **Rate limits dominate real latency.** In E9, 84 % of workflow latency was 429 retries and capability
+  pauses, against 0.2 % for the runtime's own dispatch. Groq's on_demand tier for gpt-oss-120b allows 8,000 tokens per
   minute and **200,000 tokens per day**; E7 + E8 + the gate runs used the day's budget, after which
   Groq asked for a ~20 min wait and atsd paused the capability for exactly that long (D39). On the 8,000 tokens/min tier at most 2 LLM calls run at
   once, and 429 backoff adds seconds to tens of seconds; the parallel speedup the scheduler can deliver
