@@ -30,6 +30,7 @@ from planner.messages import TaskMessage, attempt_id, result_key
 from planner.paths import EVAL_CASES
 from planner.schema import ExecutionPlan, TaskType
 from worker.executors.base import ExecutionContext, RetryableError
+from planner import provider
 from worker.executors.llm import DEFAULT_EXECUTOR_MODEL, LLMExecutor, make_client
 
 from . import live
@@ -103,7 +104,9 @@ async def _single(request: str, client: Any) -> dict[str, Any]:
     for attempt in range(1, 9):
         try:
             r = await client.chat.completions.create(
-                model=DEFAULT_EXECUTOR_MODEL, reasoning_effort="low", timeout=300,
+                # before D60:
+                # model=DEFAULT_EXECUTOR_MODEL, reasoning_effort="low", timeout=300,
+                model=provider.model_name(DEFAULT_EXECUTOR_MODEL), reasoning_effort="low", timeout=300,
                 messages=[{"role": "system", "content": SINGLE_PROMPT}, {"role": "user", "content": request}])
             break
         except Exception as exc:

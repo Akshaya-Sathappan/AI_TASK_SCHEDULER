@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.7",
     "groq>=0.30",
+    "openai>=1.40",  # Hugging Face Inference Providers' OpenAI-compatible router (D60)
     "pyyaml>=6.0.3",
 ]
 

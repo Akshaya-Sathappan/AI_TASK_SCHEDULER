@@ -14,7 +14,8 @@ plan file to requests:new for atsd. The runtime, never the LLM, assigns request_
 
 Configuration (environment):
     REDIS_URL            default redis://localhost:6379/0
-    ATS_PLANNER          "groq" (default; needs GROQ_API_KEY) or "fake"
+    ATS_PLANNER          "groq" (default: the LLM planner) or "fake"
+    ATS_LLM_PROVIDER     "groq" (default; needs GROQ_API_KEY) or "hf" (Hugging Face; needs HF_TOKEN), D60
     ATS_FAKE_FIXTURE     fixture returned by the fake planner (default company_research)
     ATS_ARTIFACTS_DIR    where workers spill large results (default artifacts; shared volume)
     ATS_FAST_PATH        "0" stops mode auto from answering simple requests directly (default on)
@@ -32,7 +33,8 @@ from typing import Any, Literal
 
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
-from groq import GroqError
+# before D60:
+# from groq import GroqError
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis
 from redis.asyncio.retry import Retry
@@ -45,6 +47,7 @@ from planner.artifacts import artifacts_root
 from planner.cli import make_plan_file
 from planner.llm import Planner, PlanRejected
 from planner.messages import REQUEST_ID_PATTERN, STREAM_FIELD
+from planner.provider import provider_errors
 from planner.schema import ExecutionPlan, ValidationIssue
 from planner.validate import validate_plan
 
@@ -161,7 +164,9 @@ def create_app(redis_url: str | None = None, planner_factory: Callable[[], Plann
             plan = await run_in_threadpool(planner.generate_plan, body.text)
         except PlanRejected as exc:
             return _rejected(exc.issues)
-        except GroqError as exc:
+        # before D60:
+        # except GroqError as exc:
+        except provider_errors() as exc:  # Groq or Hugging Face (D60)
             raise HTTPException(status_code=502, detail=f"planner provider error: {exc}") from exc
         warnings = validate_plan(plan.model_dump(mode="json", exclude_none=True)).warnings
         request_id = await enqueue(request.app.state.redis, plan)

@@ -72,6 +72,12 @@ up-llm:
 	ATSD_CAPABILITY=llm WORKER_CAPABILITIES=llm WORKER_CONCURRENCY=2 \
 	ATSD_LLM_MAX_INFLIGHT=$(LLM_INFLIGHT) ATSD_MAX_ATTEMPTS=$(LLM_ATTEMPTS) docker compose up -d --build --wait
 
+# The LLM stack on Hugging Face Inference Providers (D60): set ATS_LLM_PROVIDER=hf and HF_TOKEN in .env
+# first (ATS_HF_PROVIDER optional). Same stack as up-llm; a 429 is still retried with its hint (D45).
+#   make up-hf                     # optional: HF_INFLIGHT=4 for more calls in flight
+up-hf:
+	$(MAKE) up-llm LLM_INFLIGHT=$(or $(HF_INFLIGHT),$(LLM_INFLIGHT))
+
 # Benchmarks (design doc 11). make bench: workloads -> ats_sim sweep -> sim plots, in seconds,
 # no Redis needed. make bench-dist: E1-E3 with the real atsd, a throwaway redis-server and
 # in-process sim workers (about a minute), then the plots again with the measured results.

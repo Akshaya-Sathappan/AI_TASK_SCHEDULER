@@ -64,7 +64,7 @@ services:
     volumes:
       - ./artifacts:/artifacts
     env_file:
-      - path: .env          # GROQ_API_KEY, ATS_PLANNER_MODEL, ATS_EXECUTOR_MODEL
+      - path: .env          # GROQ_API_KEY (or ATS_LLM_PROVIDER=hf + HF_TOKEN, D60), ATS_PLANNER_MODEL, ATS_EXECUTOR_MODEL
         required: false
     ports:
       - "8000:8000"
@@ -93,7 +93,7 @@ services:
       SIM_FAULT_SEED: ${SIM_FAULT_SEED:-0}
       ATS_INPUT_BUDGET_CHARS: ${ATS_INPUT_BUDGET_CHARS:-6000}   # dependency results per task (D58); 0 = no limit
     env_file:
-      # GROQ_API_KEY, ATS_EXECUTOR_MODEL, ATS_EXECUTOR_MODELS (llm workers only). ATS_EXECUTOR_MODELS is
+      # GROQ_API_KEY (or ATS_LLM_PROVIDER=hf + HF_TOKEN + ATS_HF_PROVIDER, D60), ATS_EXECUTOR_MODEL, ATS_EXECUTOR_MODELS (llm workers only). ATS_EXECUTOR_MODELS is
       # set here, not above: unset means the per-type defaults (D58), while "" turns them off.
       - path: .env
         required: false

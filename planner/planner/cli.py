@@ -51,7 +51,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fake", metavar="FIXTURE", help="use FakePlanner with examples/plans/FIXTURE.json")
     args = parser.parse_args(argv)
 
-    from groq import GroqError
+    # before D60:
+    # from groq import GroqError
+    from .provider import provider_errors
 
     planner = build_planner(args)
     try:
@@ -63,7 +65,9 @@ def main(argv: list[str] | None = None) -> int:
             print("raw output:\n" + (exc.raw if isinstance(exc.raw, str) else json.dumps(exc.raw, indent=2)),
                   file=sys.stderr)
         return 1
-    except GroqError as exc:  # missing key, auth, rate limit, network
+    # before D60:
+    # except GroqError as exc:  # missing key, auth, rate limit, network
+    except provider_errors() as exc:  # missing key, auth, rate limit, network (Groq or Hugging Face)
         print(f"provider error: {exc}", file=sys.stderr)
         return 2
 

@@ -346,3 +346,65 @@ def test_final_answer_is_part_of_the_schema_and_kept():
     assert "final_answer" not in parse_output(json.dumps({"content": "c", "key_points": [], "final_answer": None}))
     assert "final_answer" not in parse_output(json.dumps({"content": "c", "key_points": []}))  # older outputs
 
+
+
+# --- Hugging Face provider (D60) ---------------------------------------------------------
+
+
+def _hf_executor(monkeypatch, handler, task_type="compare"):
+    """An LLMExecutor on the real OpenAI SDK (ATS_LLM_PROVIDER=hf) whose HTTP goes to `handler`."""
+    import httpx
+
+    from planner import provider
+
+    monkeypatch.setenv("ATS_LLM_PROVIDER", "hf")
+    monkeypatch.setenv("ATS_HF_PROVIDER", "cerebras")
+    monkeypatch.setenv("HF_TOKEN", "hf_test")
+    monkeypatch.delenv("ATS_HF_BASE_URL", raising=False)
+    client = provider.async_client(http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    return LLMExecutor(task_type, client=client)
+
+
+def test_hf_executor_calls_the_router_with_the_backend_suffix(monkeypatch):
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        body = {"id": "x", "object": "chat.completion", "created": 0, "model": "m",
+                "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content":
+                             json.dumps({"content": "Paris", "key_points": ["capital"], "final_answer": "Paris"})}}],
+                "usage": {"prompt_tokens": 50, "completion_tokens": 7, "total_tokens": 57}}
+        return httpx_response(200, body)
+
+    r = run(_hf_executor(monkeypatch, handler), msg())
+    assert r.output == {"content": "Paris", "key_points": ["capital"], "final_answer": "Paris"}
+    assert (r.tokens_in, r.tokens_out) == (50, 7)
+    (req,) = seen
+    assert str(req.url) == "https://router.huggingface.co/v1/chat/completions"
+    assert req.headers["authorization"] == "Bearer hf_test"
+    sent = json.loads(req.content)
+    assert sent["model"] == "openai/gpt-oss-120b:cerebras"
+    assert sent["reasoning_effort"] == "low"
+    assert sent["response_format"]["json_schema"]["strict"] is True
+
+
+def test_hf_429_is_retryable_with_retry_after_and_400_is_permanent(monkeypatch):
+    calls = []
+
+    def limited(request):
+        calls.append(request)
+        return httpx_response(429, {"error": "rate limited"}, headers={"retry-after": "3"})
+
+    with pytest.raises(RetryableError) as info:
+        run(_hf_executor(monkeypatch, limited), msg())
+    assert info.value.retry_after_ms == 3000
+    assert len(calls) == 1  # no SDK retries: atsd owns them
+
+    with pytest.raises(PermanentError):
+        run(_hf_executor(monkeypatch, lambda request: httpx_response(400, {"error": "bad schema"})), msg())
+
+
+def httpx_response(status, body, headers=None):
+    import httpx
+
+    return httpx.Response(status, json=body, headers=headers or {})

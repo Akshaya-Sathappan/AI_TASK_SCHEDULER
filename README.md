@@ -250,7 +250,7 @@ docs/contract.md                 contract #1: plan file format, issue codes, par
 docs/messages.md                 contract #2 (frozen): task messages, events and result values; request intake/status (proposed)
 docs/REPORT.md                   architecture, decisions, results (E1–E8), limitations
 docs/DEMO.md                     demo / video script
-docs/DECISIONS.md                decisions made during the build (D15, D17–D58)
+docs/DECISIONS.md                decisions made during the build (D15, D17–D58, D60)
 schemas/                         JSON Schema generated from planner/planner/schema.py and messages.py (do not edit by hand)
 examples/plans/                  shared fixtures (plan files with the envelope)
 examples/messages/               JSON examples of every task message and event (contract #2)
@@ -521,4 +521,14 @@ make demo-llm REQUEST="Research the top 3 AI chip companies and write a short re
 - [x] Fast path: `POST /requests` answers a simple request with one direct call (`mode`: `auto` | `workflow` | `direct`)
 - [x] Structured `final_answer` in every output; the report shows it first and E9 reads it before parsing text
 - [ ] Measure the effect: re-run E7 (latency, tokens) and E9 (accuracy, especially with report on the 20b model)
+
+## LLM provider switch: Groq or Hugging Face (D60)
+
+- [x] `ATS_LLM_PROVIDER=hf` with `HF_TOKEN` (and optionally `ATS_HF_PROVIDER=cerebras`) in `.env` runs the planner, workers, fast path and benchmarks on Hugging Face Inference Providers (OpenAI-compatible router, same model ids); Groq stays the default. 6 provider tests, 3 worker tests on the real OpenAI SDK with a mock transport (router URL and `:backend` suffix, 429 -> retryable with its hint and no SDK retry, 400 -> permanent)
+- [ ] E9 on Hugging Face vs Groq
+
+```bash
+make down && make up-hf          # .env: ATS_LLM_PROVIDER=hf, HF_TOKEN=hf_..., ATS_HF_PROVIDER=cerebras
+cd bench && uv run --env-file ../.env python -m bench.e9 --per-dataset 3 --mode workflow --out results/e9_hf.csv && cd ..
+```
 

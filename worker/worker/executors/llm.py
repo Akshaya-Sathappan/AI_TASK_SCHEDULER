@@ -26,6 +26,7 @@ import time
 from importlib import resources
 from typing import Any
 
+from planner import provider
 from planner.messages import TaskMessage
 from planner.schema import TaskType
 from planner.validate import validate_subplan
@@ -263,9 +264,12 @@ def classify_provider_error(exc: Exception) -> RetryableError | PermanentError:
 
 
 def make_client() -> Any:
-    from groq import AsyncGroq  # needs GROQ_API_KEY
-
-    return AsyncGroq(max_retries=0)  # retries belong to atsd, not the SDK (8.6, D12)
+    # before D60:
+    # from groq import AsyncGroq  # needs GROQ_API_KEY
+    #
+    # return AsyncGroq(max_retries=0)  # retries belong to atsd, not the SDK (8.6, D12)
+    # Groq or Hugging Face by ATS_LLM_PROVIDER (D60); no SDK retries: they belong to atsd (8.6, D12)
+    return provider.async_client(max_retries=0)
 
 
 def parse_output(content: str) -> dict[str, Any]:
@@ -292,7 +296,9 @@ class LLMExecutor(Executor):
 
     def __init__(self, task_type: TaskType, model: str | None = None, client: Any = None, clock=time.time):
         self.task_type = TaskType(task_type)
-        self.model = model or model_for(self.task_type)
+        # before D60:
+        # self.model = model or model_for(self.task_type)
+        self.model = provider.model_name(model or model_for(self.task_type))  # "<model>:<backend>" on hf (D60)
         reasoning = os.environ.get(EXECUTOR_REASONING_ENV, DEFAULT_EXECUTOR_REASONING)
         self.reasoning_effort = reasoning if reasoning and "gpt-oss" in self.model else None
         self.client = client if client is not None else make_client()

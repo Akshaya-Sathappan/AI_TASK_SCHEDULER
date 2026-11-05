@@ -43,6 +43,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from planner import provider
 from worker.executors.llm import DEFAULT_EXECUTOR_MODEL, make_client
 
 from . import live
@@ -173,7 +174,9 @@ async def _chat(client: Any, system: str, user: str) -> tuple[str, int, int, int
     for attempt in range(1, 9):
         try:
             r = await client.chat.completions.create(
-                model=DEFAULT_EXECUTOR_MODEL, reasoning_effort="low", timeout=300,
+                # before D60:
+                # model=DEFAULT_EXECUTOR_MODEL, reasoning_effort="low", timeout=300,
+                model=provider.model_name(DEFAULT_EXECUTOR_MODEL), reasoning_effort="low", timeout=300,
                 messages=[{"role": "system", "content": system}, {"role": "user", "content": user}])
             u = r.usage
             return r.choices[0].message.content or "", u.prompt_tokens, u.completion_tokens, attempt, retries

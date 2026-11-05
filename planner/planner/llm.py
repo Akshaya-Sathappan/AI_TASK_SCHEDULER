@@ -14,6 +14,7 @@ from abc import ABC, abstractmethod
 from importlib import resources
 from typing import Any
 
+from . import provider
 from .schema import ExecutionPlan, IssueCode, TaskType, ValidationIssue
 from .validate import validate_plan
 
@@ -154,11 +155,15 @@ def _feedback_message(issues: list[ValidationIssue]) -> str:
 
 class GroqPlanner(Planner):
     def __init__(self, model: str | None = None, client: Any = None, max_retries: int = 2):
-        self.model = model or os.environ.get(MODEL_ENV, DEFAULT_MODEL)
+        # before D60:
+        # self.model = model or os.environ.get(MODEL_ENV, DEFAULT_MODEL)
+        self.model = provider.model_name(model or os.environ.get(MODEL_ENV, DEFAULT_MODEL))
         if client is None:
-            from groq import Groq  # imported lazily so tests never need the SDK configured
-
-            client = Groq(max_retries=max_retries)  # reads GROQ_API_KEY
+            # before D60:
+            # from groq import Groq  # imported lazily so tests never need the SDK configured
+            #
+            # client = Groq(max_retries=max_retries)  # reads GROQ_API_KEY
+            client = provider.sync_client(max_retries)  # Groq or Hugging Face, by ATS_LLM_PROVIDER (D60)
         self.client = client
         self.system_prompt = load_system_prompt()
         self.last_usage: Any = None
