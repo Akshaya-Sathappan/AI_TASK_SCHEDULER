@@ -8,6 +8,7 @@
                                    completes (?include_outputs=true adds every completed task's output)
     GET  /requests/{request_id}/report   the final output as Markdown (409 until the request succeeds)
     GET  /requests                 the most recent requests, newest first (?limit=50), D62
+    GET  /requests/{request_id}/timeline   atsd's event log for the request as attempt bars (D63)
     GET  /monitor                  a live page: every request's plan, each task's instruction, state,
                                    tokens and output, and the final answer (D62)
     GET  /healthz                  Redis reachable
@@ -22,6 +23,7 @@ Configuration (environment):
     ATS_FAKE_FIXTURE     fixture returned by the fake planner (default company_research)
     ATS_ARTIFACTS_DIR    where workers spill large results (default artifacts; shared volume)
     ATS_FAST_PATH        "0" stops mode auto from answering simple requests directly (default on)
+    ATS_RUNS_DIR         atsd's event logs, read for /timeline (default runs; docker-compose: /runs), D63
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import time
 from pathlib import Path
 from collections.abc import Callable
 from contextlib import asynccontextmanager
@@ -57,6 +60,7 @@ from planner.validate import validate_plan
 from . import direct
 from .monitor import MONITOR_HTML
 from .status import SUBMITTED, list_requests, render_report, request_status
+from .timeline import EventLog, build_timeline, runs_dir as default_runs_dir
 
 MAX_REQUEST_CHARS = 4000
 
@@ -113,9 +117,10 @@ def _accepted(request_id: str, plan: ExecutionPlan, warnings: list[ValidationIss
 
 def create_app(redis_url: str | None = None, planner_factory: Callable[[], Planner] | None = None,
                artifacts_dir: Path | None = None, direct_executor_factory: Callable[[], Any] | None = None,
-               fast_path: bool | None = None) -> FastAPI:
+               fast_path: bool | None = None, runs_dir: Path | None = None) -> FastAPI:
     redis_url = redis_url or os.environ.get("REDIS_URL", "redis://localhost:6379/0")
     artifacts_dir = artifacts_dir or artifacts_root()
+    event_log = EventLog(runs_dir or default_runs_dir())  # D63
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -187,6 +192,14 @@ def create_app(redis_url: str | None = None, planner_factory: Callable[[], Plann
     @app.get("/requests")
     async def get_requests(request: Request, limit: int = 50):  # D62
         return await list_requests(request.app.state.redis, max(1, min(limit, 500)))
+
+    @app.get("/requests/{request_id}/timeline")
+    async def get_timeline(request: Request, request_id: str):  # D63
+        await _status(request, request_id)  # 404 for an unknown request
+        timeline = build_timeline(await run_in_threadpool(event_log.events, request_id))
+        start = timeline["start_ms"]
+        timeline["now_ms"] = int(time.time() * 1000) - start if start is not None else None
+        return timeline
 
     @app.get("/monitor", response_class=HTMLResponse)
     async def get_monitor():  # D62

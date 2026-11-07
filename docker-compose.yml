@@ -61,8 +61,10 @@ services:
       ATS_PLANNER: ${ATS_PLANNER:-groq}
       ATS_ARTIFACTS_DIR: /artifacts
       ATS_FAST_PATH: ${ATS_FAST_PATH:-1}          # simple requests answered with one call (D58); 0 = off
+      ATS_RUNS_DIR: /runs                          # atsd's event logs, for the monitor's timeline (D63)
     volumes:
       - ./artifacts:/artifacts
+      - ./runs:/runs:ro                            # read-only: only atsd writes its event log (D63)
     env_file:
       - path: .env          # GROQ_API_KEY (or ATS_LLM_PROVIDER=hf + HF_TOKEN, D60), ATS_PLANNER_MODEL, ATS_EXECUTOR_MODEL
         required: false

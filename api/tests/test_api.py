@@ -423,3 +423,21 @@ def test_monitor_page_is_served(redis_url):
         page = c.get("/monitor")
     assert page.status_code == 200 and page.headers["content-type"].startswith("text/html")
     assert "ATS Monitor" in page.text and "/requests?limit=" in page.text and "include_outputs=true" in page.text
+
+
+def test_timeline_route_reads_the_event_log(redis_url, tmp_path):
+    from fastapi.testclient import TestClient as _TC
+
+    with _TC(create_app(redis_url=redis_url, planner_factory=lambda: FakePlanner(), fast_path=False,
+                        runs_dir=tmp_path)) as c:
+        rid = c.post("/plans", json=load_fixture_plan("company_research")).json()["request_id"]
+        empty = c.get(f"/requests/{rid}/timeline").json()
+        (tmp_path / "run1").mkdir()
+        (tmp_path / "run1" / "events.jsonl").write_text("\n".join(json.dumps(e) for e in [
+            {"ts_ms": 100, "event": "request_accepted", "request": rid},
+            {"ts_ms": 110, "event": "dispatched", "request": rid, "task": "t1", "attempt": 1}]) + "\n")
+        live = c.get(f"/requests/{rid}/timeline").json()
+        missing = c.get("/requests/req_nope/timeline")
+    assert empty["available"] is False
+    assert live["available"] and live["attempts"][0]["task"] == "t1" and live["now_ms"] > 0
+    assert missing.status_code == 404

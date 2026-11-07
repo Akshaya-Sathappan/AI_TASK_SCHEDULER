@@ -250,7 +250,7 @@ docs/contract.md                 contract #1: plan file format, issue codes, par
 docs/messages.md                 contract #2 (frozen): task messages, events and result values; request intake/status (proposed)
 docs/REPORT.md                   architecture, decisions, results (E1–E8), limitations
 docs/DEMO.md                     demo / video script
-docs/DECISIONS.md                decisions made during the build (D15, D17–D58, D60–D62)
+docs/DECISIONS.md                decisions made during the build (D15, D17–D58, D60–D63)
 schemas/                         JSON Schema generated from planner/planner/schema.py and messages.py (do not edit by hand)
 examples/plans/                  shared fixtures (plan files with the envelope)
 examples/messages/               JSON examples of every task message and event (contract #2)
@@ -555,6 +555,10 @@ cd bench && uv run --env-file ../.env python -m bench.e9 --per-dataset 3 --out r
 - [x] `http://localhost:8000/monitor`: a live page served by the API. Left: the latest requests and their status. Right, for the selected request: the planner's plan (every task's type, title, dependencies and instruction), each task's state, attempt and tokens, each worker's answer (final_answer, content, key points; an expand task's subplan), the final answer and the error. Refreshes every second until the request finishes; a box at the top submits a new request
 - [x] `GET /requests` lists the latest requests (`?limit=`); `GET /requests/{id}` now includes each task's instruction
 - [x] 3 API tests (list order and status, instructions in the status, the page is served)
+
+- [x] Task graph (D63): one box per task, arrows from each dependency, coloured by state (waiting, running, completed, failed) and updated live; click a box to jump to its output
+- [x] Timeline (D63): a Gantt chart from atsd's event log (`GET /requests/{id}/timeline`, `./runs` mounted read-only into the API): one row per task, one bar per attempt (waiting for a worker, then running), coloured by how it ended (completed, retried, failed, lost the race), 429 pauses as red lines; hover a bar for its times and worker
+- [x] 4 tests (attempt bars and outcomes, incremental log reading with a half-written line, the timeline route)
 
 Open it in the VM's browser after `make up-hf` (or `make up-llm`), then run E9 or submit a request from the page.
 
