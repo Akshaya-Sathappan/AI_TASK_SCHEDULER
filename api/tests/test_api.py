@@ -389,3 +389,37 @@ def test_direct_answer_retries_rate_limits_then_fails_permanently(redis_url, mon
         limited = wait_done(c, c.post("/requests", json={"text": "x", "mode": "direct"}).json()["request_id"])
     assert limited["status"] == "FAILED" and limited["tasks"][0]["attempt"] == 4
 
+
+
+# --- D62: request list, instructions in the status, the monitor page ------------------------
+
+
+def test_request_list_newest_first_with_status(redis_url, r):
+    with client(redis_url) as c:
+        first = c.post("/plans", json=load_fixture_plan("expand_canned")).json()["request_id"]
+        second = c.post("/plans", json=load_fixture_plan("company_research")).json()["request_id"]
+        r.hset(keys.request_key(first), mapping={"status": "SUCCEEDED"})
+        listed = c.get("/requests").json()
+        one = c.get("/requests?limit=1").json()
+    ids = [x["request_id"] for x in listed]
+    assert set(ids) >= {first, second}
+    assert [x["created_at"] for x in listed] == sorted((x["created_at"] for x in listed), reverse=True)
+    by_id = {x["request_id"]: x for x in listed}
+    assert by_id[first]["status"] == "SUCCEEDED" and by_id[second]["status"] == "SUBMITTED"
+    assert by_id[second]["tasks"] == len(load_fixture_plan("company_research")["tasks"])
+    assert len(one) == 1
+
+
+def test_status_includes_each_task_instruction(redis_url):
+    plan = load_fixture_plan("company_research")
+    with client(redis_url) as c:
+        rid = c.post("/plans", json=plan).json()["request_id"]
+        tasks = c.get(f"/requests/{rid}").json()["tasks"]
+    assert [t["instruction"] for t in tasks] == [t["instruction"] for t in plan["tasks"]]
+
+
+def test_monitor_page_is_served(redis_url):
+    with client(redis_url) as c:
+        page = c.get("/monitor")
+    assert page.status_code == 200 and page.headers["content-type"].startswith("text/html")
+    assert "ATS Monitor" in page.text and "/requests?limit=" in page.text and "include_outputs=true" in page.text

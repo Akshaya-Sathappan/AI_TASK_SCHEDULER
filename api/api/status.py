@@ -79,9 +79,12 @@ def _spliced_tasks(owner: str, subplan: Any) -> dict[str, dict[str, Any]]:
             continue
         deps = [local[d] for d in t.get("depends_on") or [] if d in local]
         has_child.update(deps)
-        out[local[t.get("id")]] = {"type": t.get("type"), "title": t.get("title"), "depends_on": [owner, *deps]}
+        # before D62:
+        # out[local[t.get("id")]] = {"type": t.get("type"), "title": t.get("title"), "depends_on": [owner, *deps]}
+        out[local[t.get("id")]] = {"type": t.get("type"), "title": t.get("title"), "depends_on": [owner, *deps],
+                                   "instruction": t.get("instruction")}  # D62
     out[f"{owner}.join"] = {"type": "join", "title": f"Results of {owner}'s subtasks",
-                            "depends_on": [tid for tid in out if tid not in has_child]}
+                            "depends_on": [tid for tid in out if tid not in has_child], "instruction": None}
     return out
 
 
@@ -111,7 +114,11 @@ async def request_status(redis: Redis, request_id: str, artifacts_root: Path | N
 
     tasks = []
     for t in plan_file.plan.tasks:
+        # before D62:
+        # tasks.append({"id": t.id, "type": t.type.value, "title": t.title, "depends_on": t.depends_on,
+        #               **_task_state(runtime.get(f"task:{t.id}"))})
         tasks.append({"id": t.id, "type": t.type.value, "title": t.title, "depends_on": t.depends_on,
+                      "instruction": t.instruction,  # D62: shown by /monitor
                       **_task_state(runtime.get(f"task:{t.id}"))})
     # Tasks spliced in by an expand task (t2.1, t2.2, ..., t2.join) exist only in the runtime hash;
     # they are described from the expand task's committed subplan (D53).
@@ -124,7 +131,7 @@ async def request_status(redis: Redis, request_id: str, artifacts_root: Path | N
         owner = tid.split(".", 1)[0]
         if owner not in subplans:
             subplans[owner] = _spliced_tasks(owner, await load_result(redis, request_id, owner, artifacts_root))
-        info = subplans[owner].get(tid, {"type": None, "title": None, "depends_on": None})
+        info = subplans[owner].get(tid, {"type": None, "title": None, "depends_on": None, "instruction": None})
         tasks.append({"id": tid, **info, **_task_state(runtime[f"task:{tid}"])})
     completed = [t["id"] for t in tasks if t["state"] == "COMPLETED"]
 
@@ -150,6 +157,25 @@ async def request_status(redis: Redis, request_id: str, artifacts_root: Path | N
     if include_outputs:
         result["outputs"] = {tid: await load_result(redis, request_id, tid, artifacts_root) for tid in completed}
     return result
+
+
+async def list_requests(redis: Redis, limit: int = 50) -> list[dict[str, Any]]:
+    """The most recent requests (newest first): id, created_at, summary, status, task count (D62)."""
+    out = []
+    async for key in redis.scan_iter(match=keys.plan_key("*"), count=500):
+        raw = await redis.get(key)
+        if raw is None:
+            continue
+        try:
+            plan_file = PlanFile.model_validate_json(raw)
+        except ValueError:
+            continue
+        status = await redis.hget(keys.request_key(plan_file.request_id), "status")
+        out.append({"request_id": plan_file.request_id, "created_at": plan_file.created_at,
+                    "summary": plan_file.plan.summary, "status": status or SUBMITTED,
+                    "tasks": len(plan_file.plan.tasks)})
+    out.sort(key=lambda r: r["created_at"], reverse=True)
+    return out[:limit]
 
 
 def _section(value: Any) -> str:

@@ -7,6 +7,9 @@
     GET  /requests/{request_id}    status, per-task states, token usage, final output once the sink
                                    completes (?include_outputs=true adds every completed task's output)
     GET  /requests/{request_id}/report   the final output as Markdown (409 until the request succeeds)
+    GET  /requests                 the most recent requests, newest first (?limit=50), D62
+    GET  /monitor                  a live page: every request's plan, each task's instruction, state,
+                                   tokens and output, and the final answer (D62)
     GET  /healthz                  Redis reachable
 
 Enqueueing writes plan:{req} (so status works immediately) and then appends the
@@ -32,7 +35,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Literal
 
 from fastapi import Body, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 # before D60:
 # from groq import GroqError
 from pydantic import BaseModel, Field
@@ -52,7 +55,8 @@ from planner.schema import ExecutionPlan, ValidationIssue
 from planner.validate import validate_plan
 
 from . import direct
-from .status import SUBMITTED, render_report, request_status
+from .monitor import MONITOR_HTML
+from .status import SUBMITTED, list_requests, render_report, request_status
 
 MAX_REQUEST_CHARS = 4000
 
@@ -179,6 +183,14 @@ def create_app(redis_url: str | None = None, planner_factory: Callable[[], Plann
         if status is None:
             raise HTTPException(status_code=404, detail="unknown request")
         return status
+
+    @app.get("/requests")
+    async def get_requests(request: Request, limit: int = 50):  # D62
+        return await list_requests(request.app.state.redis, max(1, min(limit, 500)))
+
+    @app.get("/monitor", response_class=HTMLResponse)
+    async def get_monitor():  # D62
+        return HTMLResponse(MONITOR_HTML)
 
     @app.get("/requests/{request_id}")
     async def get_request(request: Request, request_id: str, include_outputs: bool = False):
