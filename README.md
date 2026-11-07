@@ -72,11 +72,11 @@ Live planning with Groq: create `.env` in the repo root (it is gitignored) with
 ```bash
 GROQ_API_KEY=<your key>
 ATS_PLANNER_MODEL=openai/gpt-oss-120b   # optional, this is the default
-# optional, executor models (D58). Default: summarize and report on openai/gpt-oss-20b, the rest on
+# optional, executor models (D58, D61). Default: summarize on openai/gpt-oss-20b, the rest on
 # openai/gpt-oss-120b. ATS_EXECUTOR_MODEL alone puts every type on one model; ATS_EXECUTOR_MODELS maps
 # types ("summarize=openai/gpt-oss-20b,report=openai/gpt-oss-120b"), and "" turns the map off.
 # ATS_EXECUTOR_MODEL=openai/gpt-oss-120b
-# ATS_EXECUTOR_MODELS=summarize=openai/gpt-oss-20b,report=openai/gpt-oss-20b
+# ATS_EXECUTOR_MODELS=summarize=openai/gpt-oss-20b   (the default since D61; report runs on 120b)
 # ATS_INPUT_BUDGET_CHARS=6000            # dependency results per task, split across inputs; 0 = no limit
 ```
 
@@ -250,7 +250,7 @@ docs/contract.md                 contract #1: plan file format, issue codes, par
 docs/messages.md                 contract #2 (frozen): task messages, events and result values; request intake/status (proposed)
 docs/REPORT.md                   architecture, decisions, results (E1–E8), limitations
 docs/DEMO.md                     demo / video script
-docs/DECISIONS.md                decisions made during the build (D15, D17–D58, D60)
+docs/DECISIONS.md                decisions made during the build (D15, D17–D58, D60–D61)
 schemas/                         JSON Schema generated from planner/planner/schema.py and messages.py (do not edit by hand)
 examples/plans/                  shared fixtures (plan files with the envelope)
 examples/messages/               JSON examples of every task message and event (contract #2)
@@ -525,10 +525,28 @@ make demo-llm REQUEST="Research the top 3 AI chip companies and write a short re
 ## LLM provider switch: Groq or Hugging Face (D60)
 
 - [x] `ATS_LLM_PROVIDER=hf` with `HF_TOKEN` (and optionally `ATS_HF_PROVIDER=cerebras`) in `.env` runs the planner, workers, fast path and benchmarks on Hugging Face Inference Providers (OpenAI-compatible router, same model ids); Groq stays the default. 6 provider tests, 3 worker tests on the real OpenAI SDK with a mock transport (router URL and `:backend` suffix, 429 -> retryable with its hint and no SDK retry, 400 -> permanent)
-- [ ] E9 on Hugging Face vs Groq
+- [x] E9 on Hugging Face (Cerebras): 9 of 9 finished in 1.2–5.3 s with no rate-limit waits (Groq: up to 56 s, 4 failed); 3 of 9 correct
 
 ```bash
 make down && make up-hf          # .env: ATS_LLM_PROVIDER=hf, HF_TOKEN=hf_..., ATS_HF_PROVIDER=cerebras
 cd bench && uv run --env-file ../.env python -m bench.e9 --per-dataset 3 --mode workflow --out results/e9_hf.csv && cd ..
+```
+
+## Workflow latency and accuracy (D61)
+
+The first Hugging Face run removed the rate-limit waits, but the workflow was still slower and less accurate than one LLM call. Changes:
+
+- [x] The user's request is copied into the final task's instruction (`attach_request`): the planner rewrote questions in its own words and dropped answer options, so the final task answered a different question. `ATS_ATTACH_REQUEST=0` turns it off
+- [x] The final answer (report) runs on gpt-oss-120b again; on 20b it truncated or misread answers. summarize stays on 20b
+- [x] Report prompt: a question with a short answer gets a direct 2–4 sentence answer and `final_answer` (one of the given options, copied exactly), not a Markdown report
+- [x] Shorter task outputs: about 150 words unless the instruction asks for detail (fewer output tokens, faster calls, shorter inputs for the final task)
+- [x] Planner: low reasoning effort (gpt-oss defaulted to medium) and one task for a one-step question, parallel tasks never chained (`ATS_PLANNER_REASONING`)
+- [x] `make up-hf`: 6 calls in flight instead of Groq's 2, so parallel tasks do not wait for a slot; E9 polls every 0.1 s instead of 0.5 s
+- [x] 4 planner tests (request attached to the final task only, cut to 2000 characters, low reasoning, both switchable off)
+- [ ] Rerun E9 on Hugging Face, both modes, and compare with `e9_hf.csv`
+
+```bash
+make down && make up-hf
+cd bench && uv run --env-file ../.env python -m bench.e9 --per-dataset 3 --out results/e9_d61.csv && cd ..
 ```
 

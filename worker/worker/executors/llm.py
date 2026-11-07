@@ -41,8 +41,12 @@ EXECUTOR_MODEL_ENV = "ATS_EXECUTOR_MODEL"
 # off; setting only ATS_EXECUTOR_MODEL runs every type on that one model.
 SMALL_EXECUTOR_MODEL = "openai/gpt-oss-20b"
 TYPE_MODELS_ENV = "ATS_EXECUTOR_MODELS"
-DEFAULT_TYPE_MODELS: dict[TaskType, str] = {TaskType.summarize: SMALL_EXECUTOR_MODEL,
-                                            TaskType.report: SMALL_EXECUTOR_MODEL}
+# before D61:
+# DEFAULT_TYPE_MODELS: dict[TaskType, str] = {TaskType.summarize: SMALL_EXECUTOR_MODEL,
+#                                             TaskType.report: SMALL_EXECUTOR_MODEL}
+# The report task writes the final answer, so it runs on the large model (D61): on the small one it
+# truncated or misread answers in E9. summarize stays on the small model.
+DEFAULT_TYPE_MODELS: dict[TaskType, str] = {TaskType.summarize: SMALL_EXECUTOR_MODEL}
 # gpt-oss models are reasoning models; "low" uses few reasoning tokens, which matters on
 # tokens-per-minute rate limits (Groq: low | medium | high, gpt-oss only). "" sends nothing.
 EXECUTOR_REASONING_ENV = "ATS_EXECUTOR_REASONING"

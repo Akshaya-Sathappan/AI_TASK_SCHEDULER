@@ -114,7 +114,9 @@ def run_on_stack(p: ExecutionPlan, api: str = API, timeout_s: float = 1800) -> R
         st = http("GET", f"/requests/{rid}", api=api)
         if st["status"] in FINISHED:
             break
-        time.sleep(0.5)
+        # before D61:
+        # time.sleep(0.5)
+        time.sleep(0.1)  # D61: a 0.5 s poll added 0.25 s on average to every measured workflow (about 8 % of a 3 s run)
     seconds = time.monotonic() - t0
     usage = st.get("usage") or {}
     return Run(rid, st["status"], seconds, usage.get("tokens_in", 0), usage.get("tokens_out", 0),

@@ -20,6 +20,18 @@ from .validate import validate_plan
 
 DEFAULT_MODEL = "openai/gpt-oss-120b"  # supports Groq strict structured outputs
 MODEL_ENV = "ATS_PLANNER_MODEL"
+# Reasoning effort of the planner call (D61). gpt-oss defaults to "medium" when nothing is sent,
+# which made the planner the longest step of a short request; planning is a small structured
+# task, so "low" is the default. "" sends nothing (the model's default).
+REASONING_ENV = "ATS_PLANNER_REASONING"
+DEFAULT_REASONING = "low"
+# The user's request is copied into the final task's instruction (D61): the planner rewrites the
+# question in its own words and drops details (answer options, the wanted answer format), and the
+# final task never saw the request, so it answered a different question. ATS_ATTACH_REQUEST=0 turns it off.
+ATTACH_REQUEST_ENV = "ATS_ATTACH_REQUEST"
+REQUEST_HEADER = "\n\nThe user's original request (your answer must answer exactly this; when it gives options, choose one of them):\n"
+MAX_INSTRUCTION_CHARS = 2000
+
 # Warnings that make a valid plan worth one repair (D54).
 REPAIR_WARNINGS = frozenset({IssueCode.MULTIPLE_SINKS, IssueCode.EXPAND_FANOUT})
 
@@ -140,6 +152,24 @@ def normalize_llm_output(raw: Any) -> Any:
     return raw
 
 
+def attach_request(plan: ExecutionPlan, request: str) -> ExecutionPlan:
+    """The plan with the user's request appended to the instruction of every final task (one that no
+    other task depends on), cut so the instruction stays within MAX_INSTRUCTION_CHARS (D61)."""
+    request = request.strip()
+    if not request:
+        return plan
+    used = {d for t in plan.tasks for d in t.depends_on}
+    tasks = []
+    for t in plan.tasks:
+        if t.id not in used and request not in t.instruction:
+            room = MAX_INSTRUCTION_CHARS - len(t.instruction) - len(REQUEST_HEADER)
+            if room >= 40:  # too little room left: keep the planner's instruction as it is
+                text = request if len(request) <= room else request[: room - 3].rstrip() + "..."
+                t = t.model_copy(update={"instruction": t.instruction + REQUEST_HEADER + text})
+        tasks.append(t)
+    return plan.model_copy(update={"tasks": tasks})
+
+
 def load_system_prompt() -> str:
     return resources.files("planner").joinpath("prompts/planner_system.md").read_text()
 
@@ -166,8 +196,16 @@ class GroqPlanner(Planner):
             client = provider.sync_client(max_retries)  # Groq or Hugging Face, by ATS_LLM_PROVIDER (D60)
         self.client = client
         self.system_prompt = load_system_prompt()
+        reasoning = os.environ.get(REASONING_ENV, DEFAULT_REASONING)
+        self.reasoning_effort = reasoning if reasoning and "gpt-oss" in self.model else None  # D61
         self.last_usage: Any = None
         self._last_content: str | None = None  # previous answer, replayed on a repair call
+
+    def generate_plan(self, request: str) -> ExecutionPlan:
+        plan = super().generate_plan(request)
+        if os.environ.get(ATTACH_REQUEST_ENV, "1") == "0":
+            return plan
+        return attach_request(plan, request)  # D61
 
     def propose(self, request: str, feedback: list[ValidationIssue] | None = None) -> Any:
         messages = [
@@ -179,14 +217,26 @@ class GroqPlanner(Planner):
                 messages.append({"role": "assistant", "content": self._last_content})
             messages.append({"role": "user", "content": _feedback_message(feedback)})
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            response_format={
+        # before D61:
+        # response = self.client.chat.completions.create(
+        #     model=self.model,
+        #     messages=messages,
+        #     response_format={
+        #         "type": "json_schema",
+        #         "json_schema": {"name": "execution_plan", "strict": True, "schema": LLM_PLAN_SCHEMA},
+        #     },
+        # )
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "response_format": {
                 "type": "json_schema",
                 "json_schema": {"name": "execution_plan", "strict": True, "schema": LLM_PLAN_SCHEMA},
             },
-        )
+        }
+        if self.reasoning_effort:
+            kwargs["reasoning_effort"] = self.reasoning_effort  # D61
+        response = self.client.chat.completions.create(**kwargs)
         self.last_usage = getattr(response, "usage", None)
         choice = response.choices[0]
         content = choice.message.content or ""
@@ -213,4 +263,5 @@ __all__ = [
     "LLM_PLAN_SCHEMA",
     "PlanRejected",
     "Planner",
+    "attach_request",
 ]

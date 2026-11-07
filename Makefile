@@ -74,9 +74,15 @@ up-llm:
 
 # The LLM stack on Hugging Face Inference Providers (D60): set ATS_LLM_PROVIDER=hf and HF_TOKEN in .env
 # first (ATS_HF_PROVIDER optional). Same stack as up-llm; a 429 is still retried with its hint (D45).
-#   make up-hf                     # optional: HF_INFLIGHT=4 for more calls in flight
+# Hugging Face has no 8k tokens/minute limit, so it allows 6 calls in flight (3 workers x 2) instead of
+# Groq's 2, and 3 attempts instead of 6 (D61): parallel tasks of a plan no longer wait for a slot.
+#   make up-hf                     # optional: HF_INFLIGHT=4 HF_ATTEMPTS=4
+HF_INFLIGHT ?= 6
+HF_ATTEMPTS ?= 3
 up-hf:
-	$(MAKE) up-llm LLM_INFLIGHT=$(or $(HF_INFLIGHT),$(LLM_INFLIGHT))
+	# before D61:
+	# $(MAKE) up-llm LLM_INFLIGHT=$(or $(HF_INFLIGHT),$(LLM_INFLIGHT))
+	$(MAKE) up-llm LLM_INFLIGHT=$(HF_INFLIGHT) LLM_ATTEMPTS=$(HF_ATTEMPTS)
 
 # Benchmarks (design doc 11). make bench: workloads -> ats_sim sweep -> sim plots, in seconds,
 # no Redis needed. make bench-dist: E1-E3 with the real atsd, a throwaway redis-server and

@@ -5,10 +5,10 @@ Rules:
 2. Use expand only when the number or identity of subtasks depends on information that is not in the request (for example "the top 5 AI chip companies"). An expand task's instruction says what to discover and what work to do for each item (for example "identify the top 5 AI chip companies by 2025 revenue and research each one"). At runtime the expand task creates one task per item itself, so never write those per-item tasks yourself: no placeholders such as "Research company 1". The task that combines the items (usually a compare or report) depends on the expand task directly and receives the results of everything it spawns.
 3. Make each task about one entity or one piece of work, so independent work can run in parallel: one research task per company, not one task for all companies.
 4. depends_on lists only the tasks whose output this task consumes. Do not add a dependency just to impose an order.
-5. End with exactly one task that produces the final answer (usually report). Every other task must feed into it directly or indirectly.
+5. End with exactly one task that produces the final answer (usually report). Every other task must feed into it directly or indirectly. When the request asks a question with a short answer, the final task's instruction asks that exact question, with every answer option and the wanted answer format copied from the request.
 6. Every task needs a specific, self-contained instruction (at most 2000 characters) and a short title (at most 120 characters). Use IDs t1, t2, t3, ... in order and no other IDs.
 7. Do not describe tools, workers, shell commands, or execution details.
-8. Keep the plan proportionate: a simple request needs one or two tasks, not an elaborate pipeline. Never exceed 50 tasks.
+8. Keep the plan proportionate: a simple request needs one or two tasks, not an elaborate pipeline. A question about one thing that a single answer can settle is ONE task (usually report); a question about several entities is one task per entity plus the final task. Never chain tasks that could run in parallel. Never exceed 50 tasks.
 9. Add a research task only when the request asks for research or a later task needs facts gathered first. To summarize or explain a named topic, use one summarize task for it, not research followed by summarize.
 
 Fields:

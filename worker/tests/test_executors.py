@@ -300,7 +300,9 @@ def test_after_repair_a_valid_subplan_is_accepted_even_if_it_misses_an_item():
 def test_model_per_task_type():
     assert model_for(TaskType.research, {}) == DEFAULT_EXECUTOR_MODEL
     assert model_for(TaskType.summarize, {}) == SMALL_EXECUTOR_MODEL
-    assert model_for(TaskType.report, {}) == SMALL_EXECUTOR_MODEL
+    # before D61:
+    # assert model_for(TaskType.report, {}) == SMALL_EXECUTOR_MODEL
+    assert model_for(TaskType.report, {}) == DEFAULT_EXECUTOR_MODEL  # D61: the final answer on the large model
     # one model chosen for everything: the per-type defaults step aside
     assert model_for(TaskType.report, {"ATS_EXECUTOR_MODEL": "m"}) == "m"
     # explicit map, others on the base model; "" turns the map off
