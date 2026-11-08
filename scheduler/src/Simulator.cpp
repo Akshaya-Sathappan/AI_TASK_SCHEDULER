@@ -83,9 +83,11 @@ SimReport simulate(const Dag& input, const SimConfig& cfg) {
 
   sched.start();
   while (true) {
-    // 1. Fill every free worker with the policy's next choice. A join node needs no worker.
+    // 1. Fill every free worker with the policy's next choice. A join or assemble node needs no worker.
     while (sched.hasReady()) {
-      if (auto head = sched.peekNext(); head && dag.isJoin(*head)) {
+      // before D64:
+      // if (auto head = sched.peekNext(); head && dag.isJoin(*head)) {
+      if (auto head = sched.peekNext(); head && (dag.isJoin(*head) || dag.task(*head).type == TaskType::Assemble)) {
         auto j = sched.dispatchNext();
         sched.complete(j->node);
         r.events.push_back({now, SimEventKind::Complete, j->node, -1, j->attempt});

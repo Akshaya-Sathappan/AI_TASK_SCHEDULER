@@ -140,6 +140,8 @@ std::optional<TaskSpec> parseTask(Checker& c, const json& jt, const std::string&
   } else if (auto type = parseTaskType(it->get<std::string>())) {
     if (subplan && *type == TaskType::Expand) {
       c.schema(path + ".type", "nested expand is not allowed inside a subplan", issueId);
+    } else if (subplan && *type == TaskType::Assemble) {  // D64: subplans only hold LLM tasks
+      c.schema(path + ".type", "assemble is not allowed inside a subplan", issueId);
     } else {
       t.type = *type;
     }
@@ -164,6 +166,9 @@ std::optional<TaskSpec> parseTask(Checker& c, const json& jt, const std::string&
       }
     }
   }
+  // D64: an assemble task joins its inputs' texts, so it needs at least one.
+  if (auto it = jt.find("type"); !subplan && it != jt.end() && it->is_string() && *it == "assemble" && t.dependsOn.empty())
+    c.schema(path + ".depends_on", "an assemble task needs at least one dependency", issueId);
 
   if (auto it = jt.find("hints"); it != jt.end() && !it->is_null()) {  // optional, may be null
     if (!it->is_object()) {

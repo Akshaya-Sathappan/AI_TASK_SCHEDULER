@@ -6,13 +6,14 @@
 namespace ats {
 
 namespace {
-constexpr std::array<std::pair<std::string_view, TaskType>, 6> kTypes{{
+constexpr std::array<std::pair<std::string_view, TaskType>, 7> kTypes{{
     {"research", TaskType::Research},
     {"summarize", TaskType::Summarize},
     {"analyze", TaskType::Analyze},
     {"compare", TaskType::Compare},
     {"report", TaskType::Report},
     {"expand", TaskType::Expand},
+    {"assemble", TaskType::Assemble},  // D64
 }};
 }  // namespace
 

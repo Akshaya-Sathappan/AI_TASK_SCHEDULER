@@ -168,6 +168,11 @@ std::optional<std::string> RedisBus::get(const std::string& key) {
   return str(reply.get());
 }
 
+bool RedisBus::setNx(const std::string& key, const std::string& value) {
+  ReplyPtr reply(command({"SET", key, value, "NX"}));
+  return reply->type == REDIS_REPLY_STATUS;  // "OK"; nil when the key already exists
+}
+
 std::vector<PendingEntry> RedisBus::pending(const std::string& stream, const std::string& group,
                                             std::int64_t minIdleMs, const std::string& afterId, int count) {
   // IDLE and exclusive "(" ranges need Redis 6.2+ (docker-compose runs Redis 7).

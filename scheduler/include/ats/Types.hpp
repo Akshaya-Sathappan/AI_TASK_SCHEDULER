@@ -15,7 +15,10 @@ inline constexpr std::size_t kMaxSummaryChars = 300;
 inline constexpr std::size_t kMaxTitleChars = 120;
 inline constexpr std::size_t kMaxInstructionChars = 2000;
 
-enum class TaskType { Research, Summarize, Analyze, Compare, Report, Expand };
+// before D64:
+// enum class TaskType { Research, Summarize, Analyze, Compare, Report, Expand };
+// Assemble (D64) is completed inside atsd: its result is its inputs' texts joined, no LLM call.
+enum class TaskType { Research, Summarize, Analyze, Compare, Report, Expand, Assemble };
 
 std::optional<TaskType> parseTaskType(std::string_view s);
 std::string_view toString(TaskType t);

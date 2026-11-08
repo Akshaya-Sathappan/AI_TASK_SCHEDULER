@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from planner.assemble import assemble_output
 from planner.messages import TaskMessage, attempt_id, result_key
 from planner.paths import EVAL_CASES
 from planner.schema import ExecutionPlan, TaskType
@@ -70,6 +71,9 @@ async def _sequential(p: ExecutionPlan, request_id: str, client: Any) -> dict[st
         t = tasks[tid]
         if t.type == TaskType.expand:
             raise SystemExit("E7 cases have no expand task; use E8 for open-ended requests")
+        if t.type == TaskType.assemble:  # D64: no model call, as in atsd
+            results[tid] = assemble_output([(d, tasks[d].title, results[d]) for d in t.depends_on])
+            continue
         ex = LLMExecutor(t.type, client=client)
         for attempt in range(1, 9):
             msg = TaskMessage(request_id=request_id, task_id=tid, attempt=attempt,

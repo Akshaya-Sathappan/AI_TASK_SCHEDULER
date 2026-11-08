@@ -239,3 +239,17 @@ TEST(PlanLoader, SimSubplanStructureIsCheckedByDagBuild) {
   EXPECT_THAT(codesOf(issues), ElementsAre("UNKNOWN_DEPENDENCY", "SELF_DEPENDENCY"));
   for (const auto& i : issues) EXPECT_EQ(i.taskId, "t1");
 }
+
+// D64: assemble is a plan task type completed inside atsd; it needs inputs and is not allowed in subplans.
+TEST(PlanLoader, AssembleNeedsADependencyAndIsNotAllowedInASubplan) {
+  LoadResult ok = load(planFile({task("t1"), task("t2", {"t1"}, "assemble")}));
+  ASSERT_TRUE(ok.ok());
+  EXPECT_EQ(ok.plan->tasks[1].type, TaskType::Assemble);
+
+  LoadResult none = load(planFile({task("t1", {}, "assemble")}));
+  ASSERT_THAT(codesOf(none.issues), ElementsAre("SCHEMA"));
+  EXPECT_EQ(none.issues[0].taskId, "t1");
+
+  LoadResult sub = load(planFile({expandTask(array({subTask("s1", {}, "assemble")}))}));
+  ASSERT_THAT(codesOf(sub.issues), ElementsAre("SCHEMA"));
+}

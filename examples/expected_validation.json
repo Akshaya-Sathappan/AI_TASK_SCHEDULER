@@ -84,5 +84,17 @@
       "SCHEMA"
     ],
     "warnings": []
+  },
+  "assemble": {
+    "valid": true,
+    "errors": [],
+    "warnings": []
+  },
+  "invalid_assemble_no_inputs": {
+    "valid": false,
+    "errors": [
+      "SCHEMA"
+    ],
+    "warnings": []
   }
 }

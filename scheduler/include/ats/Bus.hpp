@@ -62,6 +62,10 @@ class Bus {
   // GET <key>; nullopt if it does not exist. Used to read an expand task's committed subplan (D53).
   virtual std::optional<std::string> get(const std::string& key) = 0;
 
+  // SET <key> <value> NX; true if this call stored it (the first commit wins, as for workers).
+  // atsd writes an assemble task's result with it (D64).
+  virtual bool setNx(const std::string& key, const std::string& value) = 0;
+
   // ---- used by the janitor (D49) ----
 
   // XPENDING <stream> <group> IDLE <minIdleMs> <start> + <count>. `afterId` empty = from the

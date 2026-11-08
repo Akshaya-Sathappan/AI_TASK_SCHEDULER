@@ -250,7 +250,7 @@ docs/contract.md                 contract #1: plan file format, issue codes, par
 docs/messages.md                 contract #2 (frozen): task messages, events and result values; request intake/status (proposed)
 docs/REPORT.md                   architecture, decisions, results (E1–E8), limitations
 docs/DEMO.md                     demo / video script
-docs/DECISIONS.md                decisions made during the build (D15, D17–D58, D60–D63)
+docs/DECISIONS.md                decisions made during the build (D15, D17–D58, D60–D64)
 schemas/                         JSON Schema generated from planner/planner/schema.py and messages.py (do not edit by hand)
 examples/plans/                  shared fixtures (plan files with the envelope)
 examples/messages/               JSON examples of every task message and event (contract #2)
@@ -561,4 +561,20 @@ cd bench && uv run --env-file ../.env python -m bench.e9 --per-dataset 3 --out r
 - [x] 4 tests (attempt bars and outcomes, incremental log reading with a half-written line, the timeline route)
 
 Open it in the VM's browser after `make up-hf` (or `make up-llm`), then run E9 or submit a request from the page.
+
+## Assemble: long answers joined inside atsd (D64)
+
+The workflow's final report summarised the per-item sections (4–5k characters) while one LLM call returned all of them (17–25k), so it delivered less in the same time; a final call that rewrote every section would be as slow as the single call.
+
+- [x] New task type `assemble`, completed by atsd itself: when it is ready, atsd reads its inputs' results, joins their text in `depends_on` order (each under `## <title>`), writes the result with SET NX and completes it. No worker, no LLM call, no slot (C++: `Service::assemble`, `Bus::setNx`; the simulator completes it like a join)
+- [x] The planner uses it for "a detailed piece per item + a comparison": item tasks write full sections, one compare/report task writes only the combined part, `assemble` joins [combined, items...]. The user's request goes to the combining task (D61)
+- [x] Validation on both sides: an assemble task needs a dependency and is not allowed in a subplan (SCHEMA); 2 new fixtures, parity 16/16. Workers never get it (no executor or prompt); E7's sequential mode assembles in Python (`planner/assemble.py`, same output)
+- [x] Tests: 9 C++ (loader, simulator, 5 Service, Redis SET NX) and 7 Python; clean under Clang `-Werror` and GCC ASan/UBSan (184 C++ tests); end to end on real Redis and atsd: 3 tasks dispatched, the 4th assembled inside atsd
+- [ ] Rerun the wide E7 cases, atsd vs single, and compare `output_chars` and latency
+
+```bash
+make build && make test && make down && make up-hf
+cd bench && uv run --env-file ../.env python -m bench.e7 --case wide_six_companies --case wide_eight_countries \
+  --case wide_five_languages --case wide_six_cities --cooldown 0 --out results/e7_assemble.csv && cd ..
+```
 

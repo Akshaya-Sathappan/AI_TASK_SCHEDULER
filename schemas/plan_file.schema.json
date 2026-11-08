@@ -239,7 +239,8 @@
         "analyze",
         "compare",
         "report",
-        "expand"
+        "expand",
+        "assemble"
       ],
       "title": "TaskType",
       "type": "string"

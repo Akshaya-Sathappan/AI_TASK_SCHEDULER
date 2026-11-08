@@ -226,6 +226,8 @@ bool Service::submitPlanFile(std::string_view text, const std::string& entryId, 
   req->resumed = resume;
   for (NodeId n = 0; n < g.size(); ++n) {
     req->nodes[n].capability = capabilityFor(g.task(n).type);
+    // D64: an assemble task completes inside atsd as soon as it is ready; never dispatched.
+    if (g.task(n).type == TaskType::Assemble) req->nodes[n].completeOnDispatch = true;
     if (resume && restoreNode(*req, n)) ++restored;
     if (std::find(req->capabilities.begin(), req->capabilities.end(), req->nodes[n].capability) ==
         req->capabilities.end())
@@ -666,6 +668,13 @@ void Service::dispatch(RequestRun& req, const Dispatch& d) {
 
   if (nr.completeOnDispatch) {  // a late result arrived while RETRYING/READY, or a result restored after a restart
     nr.completeOnDispatch = false;
+    if (t.type == TaskType::Assemble && !g.isJoin(d.node)) {  // D64: or an assemble task, done here
+      if (auto error = assemble(req, d.node)) {
+        failNode(req, d.node, *error);
+        checkDone(req);
+        return;
+      }
+    }
     completeNode(req, d.node, "", nr.attempt);
     checkDone(req);
     return;
@@ -822,6 +831,65 @@ void Service::completeNode(RequestRun& req, NodeId n, const std::string& worker,
   writeTask(req, n, "COMPLETED");
   log(req.dag.isJoin(n) ? "join_completed" : "completed", req.dag.requestId(), req.dag.id(n), attempt, worker);
   for (NodeId c : ready) writeTask(req, c, "READY");
+}
+
+// D64: an assemble task's result is its inputs' results joined in depends_on order (a join's inputs
+// are its subplan's sinks, as for a TaskMessage), each under a "## <title>" heading unless its text
+// already starts with one. key_points are concatenated (at most kMaxAssembledKeyPoints) and
+// final_answer is the first input's that has one, so a comparison listed first supplies it. No LLM
+// call: this is how a long answer stays complete without one model rewriting every section.
+// SET NX, like a worker's commit, so a repeat after a restart keeps the first result.
+std::optional<std::string> Service::assemble(RequestRun& req, NodeId n) {
+  constexpr std::size_t kMaxAssembledKeyPoints = 30;
+  const Dag& g = req.dag;
+  const std::string& rid = g.requestId();
+  std::vector<NodeId> inputs;
+  std::function<void(NodeId)> add = [&](NodeId p) {
+    if (g.isJoin(p)) {
+      for (NodeId pp : g.parents(p)) add(pp);
+    } else {
+      inputs.push_back(p);
+    }
+  };
+  for (NodeId p : g.parents(n)) add(p);
+
+  std::string content;
+  json keyPoints = json::array();
+  json finalAnswer = nullptr;
+  for (NodeId p : inputs) {
+    const std::string& id = g.id(p);
+    const auto raw = bus_.get(keys::resultKey(rid, id));
+    if (!raw) return "assemble: no result for " + id;
+    std::string text;
+    try {
+      const json v = json::parse(*raw);
+      if (v.is_object() && v.contains("artifact")) {
+        text = "_(The result of " + id + " is stored as an artifact: " + v["artifact"].dump() + ")_";
+      } else if (v.is_object() && v.contains("content") && v["content"].is_string()) {
+        text = v["content"].get<std::string>();
+        if (auto k = v.find("key_points"); k != v.end() && k->is_array())
+          for (const json& point : *k)
+            if (point.is_string() && keyPoints.size() < kMaxAssembledKeyPoints) keyPoints.push_back(point);
+        if (auto f = v.find("final_answer");
+            finalAnswer.is_null() && f != v.end() && f->is_string() && !f->get<std::string>().empty())
+          finalAnswer = *f;
+      } else {
+        text = v.is_string() ? v.get<std::string>() : v.dump(2);
+      }
+    } catch (const json::exception&) {
+      text = *raw;
+    }
+    if (!content.empty()) content += "\n\n";
+    if (text.rfind('#', 0) != 0) content += "## " + g.task(p).title + "\n\n";
+    content += text;
+  }
+  const json out = {{"content", content}, {"key_points", keyPoints}, {"final_answer", finalAnswer}};
+  const bool stored = bus_.setNx(keys::resultKey(rid, g.id(n)), out.dump());
+  ++stats_.assembled;
+  log("assembled", rid, g.id(n), req.nodes[n].attempt, "",
+      std::to_string(inputs.size()) + " inputs, " + std::to_string(content.size()) + " bytes" +
+          (stored ? "" : " (a result was already stored)"));
+  return std::nullopt;
 }
 
 bool Service::spliceExpansion(RequestRun& req, NodeId e, const std::string& worker, int attempt) {

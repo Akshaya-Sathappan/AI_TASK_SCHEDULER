@@ -225,7 +225,11 @@ def _graph_issues(
 
     has_errors = any(i.severity == "error" for i in issues)
     if schema_ok and not has_errors:
-        issues += _transitive_edge_warnings(ids, parents)
+        # before D64:
+        # issues += _transitive_edge_warnings(ids, parents)
+        # An assemble task joins every input's text, so its "implied" edges are needed (D64).
+        assemble = {t.get("id") for t in tasks if isinstance(t, dict) and t.get("type") == "assemble"}
+        issues += _transitive_edge_warnings(ids, parents, skip=assemble)
         if sinks_warning:
             issues += _multiple_sinks_warning(ids, parents)
         issues += _expand_fanout_warnings(tasks, ids, parents)
@@ -257,7 +261,8 @@ def topological_order(ids: list[str], parents: dict[str, list[str]]) -> list[str
     return order
 
 
-def _transitive_edge_warnings(ids: list[str], parents: dict[str, list[str]]) -> list[ValidationIssue]:
+def _transitive_edge_warnings(ids: list[str], parents: dict[str, list[str]],
+                              skip: set[str] | frozenset[str] = frozenset()) -> list[ValidationIssue]:
     ancestors: dict[str, set[str]] = {}
     for tid in topological_order(ids, parents):
         acc: set[str] = set()
@@ -267,6 +272,8 @@ def _transitive_edge_warnings(ids: list[str], parents: dict[str, list[str]]) -> 
         ancestors[tid] = acc
     issues = []
     for tid in ids:
+        if tid in skip:
+            continue
         for p in parents[tid]:
             via = [q for q in parents[tid] if q != p and p in ancestors[q]]
             if via:

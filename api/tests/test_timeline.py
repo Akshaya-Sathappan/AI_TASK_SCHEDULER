@@ -55,3 +55,9 @@ def test_event_log_reads_new_lines_only_and_skips_a_partial_line(tmp_path):
     assert len(names) == 5 and "half-line" in names and names[-1] == "started"  # sorted by ts_ms
     assert log.events("req_other") == []
     assert EventLog(tmp_path / "missing").events("req_a") == []
+
+
+def test_a_task_completed_inside_atsd_is_a_point():  # D64: assemble, never dispatched
+    tl = build_timeline(EVENTS + [ev(4100, "assembled", "t9", None), ev(4100, "completed", "t9", None)])
+    assert {"task": "t9", "at": 3100} in tl["joins"]
+    assert all(a["task"] != "t9" for a in tl["attempts"])

@@ -23,7 +23,7 @@ Changing anything here takes a PR that updates `planner/planner/schema.py`, the 
     "tasks": [                             // 1-50 tasks
       {
         "id": "t1",                        // ^t[0-9]+$, unique
-        "type": "research",                // research | summarize | analyze | compare | report | expand
+        "type": "research",                // research | summarize | analyze | compare | report | expand | assemble
         "title": "…",                      // 1-120 characters
         "instruction": "…",                // 1-2000 characters
         "depends_on": ["…"],               // optional, defaults to []; ids whose OUTPUT this task consumes
@@ -43,8 +43,9 @@ Changing anything here takes a PR that updates `planner/planner/schema.py`, the 
 ## Additions beyond the design doc's section 4
 
 - `hints.expected_fanout` (integer ≥ 1, optional): only meaningful on `expand` tasks.
+- `assemble` (D64): completed by atsd itself, never dispatched to a worker. It needs at least one dependency (`SCHEMA` otherwise, on both sides) and is not allowed in a subplan. atsd writes its result with `SET NX` to `result:<request>:<task>` like a worker: `content` is the inputs' contents in `depends_on` order (a join's inputs are its subplan's sinks), each under `## <title>` unless it already starts with `#`; `key_points` are the inputs' key points (at most 30); `final_answer` is the first input's non-empty one. An input stored as an artifact appears as a note. `planner/assemble.py` is the Python copy (E7's sequential mode).
 - `hints.sim_subplan` (Subplan, optional): canned subplan for the simulator; appears only in fixtures and is never requested from the LLM. It must pass subplan validation on both sides: schema problems inside it (bad local ID, nested `expand`, unknown hint, 0 or more than 20 tasks) are `SCHEMA`, and its graph problems use the normal codes. All of these issues carry the owning expand task's ID.
-- **Subplan** (`expand` result): `{ "tasks": [SubplanTask, ...] }`, 1–20 tasks. A SubplanTask has the same fields as a PlannedTask, but IDs match `^s[0-9]+$`, `type` excludes `expand` (no nesting), and `hints` has only `estimated_seconds`. `depends_on` may name only other subplan tasks. The implicit dependency on the expand task, the renaming to `t2.1`, `t2.2`, ..., and the per-request limits (≤ 100 tasks, ≤ 3 expansions) belong to atsd.
+- **Subplan** (`expand` result): `{ "tasks": [SubplanTask, ...] }`, 1–20 tasks. A SubplanTask has the same fields as a PlannedTask, but IDs match `^s[0-9]+$`, `type` excludes `expand` (no nesting) and `assemble`, and `hints` has only `estimated_seconds`. `depends_on` may name only other subplan tasks. The implicit dependency on the expand task, the renaming to `t2.1`, `t2.2`, ..., and the per-request limits (≤ 100 tasks, ≤ 3 expansions) belong to atsd.
 
 ## Issue codes and the rules both sides implement
 

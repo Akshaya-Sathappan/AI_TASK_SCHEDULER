@@ -12,6 +12,7 @@ import pytest
 
 from planner.messages import TaskMessage
 from planner.validate import validate_subplan
+from worker.registry import WORKER_TYPES
 from worker.executors import ExecutionContext, LLMExecutor, PermanentError, RetryableError, SimExecutor
 from planner.schema import TaskType
 from worker.executors.llm import (
@@ -128,14 +129,17 @@ def test_llm_empty_or_malformed_answer_is_retryable(content):
 
 
 def test_each_type_has_its_own_prompt():
-    prompts = {t: load_executor_prompt(t) for t in TaskType}
-    assert len(set(prompts.values())) == len(TaskType)
+    # before D64:
+    # prompts = {t: load_executor_prompt(t) for t in TaskType}
+    # assert len(set(prompts.values())) == len(TaskType)
+    prompts = {t: load_executor_prompt(t) for t in WORKER_TYPES}  # assemble runs in atsd (D64)
+    assert len(set(prompts.values())) == len(WORKER_TYPES)
     for t, text in prompts.items():
         assert f"Task type: {t.value}" in text and "no web access" in text and "key_points" in text
     assert "step 1 of 2: discovery" in prompts[TaskType.expand]
     # expand's key_points are item names: the shared "one short sentence each" must not reach it
     assert "one short sentence each" not in prompts[TaskType.expand]
-    assert all("one short sentence each" in prompts[t] for t in TaskType if t != TaskType.expand)
+    assert all("one short sentence each" in prompts[t] for t in WORKER_TYPES if t != TaskType.expand)
     assert "never a sentence or a description." in prompts[TaskType.expand]
     assert prompts[TaskType.expand].rstrip().endswith("final_answer: null.")
     subplan = load_subplan_prompt()
@@ -154,9 +158,14 @@ def test_registry_has_one_llm_executor_per_type(monkeypatch):
 
     monkeypatch.setattr(llm_module, "make_client", lambda: FakeGroq())
     registry = default_registry(capabilities=("llm",))
-    executors = {t: registry.get("llm", t) for t in TaskType}
-    assert len({id(e) for e in executors.values()}) == len(TaskType)
+    # before D64:
+    # executors = {t: registry.get("llm", t) for t in TaskType}
+    # assert len({id(e) for e in executors.values()}) == len(TaskType)
+    executors = {t: registry.get("llm", t) for t in WORKER_TYPES}
+    assert len({id(e) for e in executors.values()}) == len(WORKER_TYPES)
     assert all(e.task_type == t for t, e in executors.items())
+    with pytest.raises(PermanentError, match="assemble"):  # never dispatched to a worker (D64)
+        registry.get("llm", TaskType.assemble)
 
 
 def test_expand_discovers_then_emits_a_validated_subplan():

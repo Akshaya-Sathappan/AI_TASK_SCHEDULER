@@ -158,7 +158,8 @@ int main(int argc, char** argv) {
               << s.dispatched << " dispatches, " << s.retries << " retries, " << s.lostAttempts << " lost attempts, "
               << s.duplicateCompletions << " duplicate completions, " << s.expansions << " expansions ("
               << s.splicedTasks << " tasks spliced, " << s.rejectedExpansions << " rejected), "
-              << s.speculativeAttempts << " speculative attempts (" << s.speculativeWins << " won), " << s.janitorAcked
+              << s.speculativeAttempts << " speculative attempts (" << s.speculativeWins << " won), " << s.assembled
+              << " assembled, " << s.janitorAcked
               << " dead pending entries acknowledged\n";
     return 0;
   } catch (const std::exception& e) {

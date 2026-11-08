@@ -28,7 +28,7 @@ from typing import Any
 
 from planner import provider
 from planner.messages import TaskMessage
-from planner.schema import TaskType
+from planner.schema import SubplanTaskType, TaskType
 from planner.validate import validate_subplan
 
 from .base import ExecutionContext, ExecutionResult, Executor, PermanentError, RetryableError
@@ -80,7 +80,9 @@ LLM_SUBPLAN_SCHEMA: dict[str, Any] = {
                 "type": "object",
                 "properties": {
                     "id": {"type": "string"},
-                    "type": {"type": "string", "enum": [t.value for t in TaskType if t != TaskType.expand]},
+                    # before D64:
+                    # "type": {"type": "string", "enum": [t.value for t in TaskType if t != TaskType.expand]},
+                    "type": {"type": "string", "enum": [t.value for t in SubplanTaskType]},  # no expand, no assemble
                     "title": {"type": "string"},
                     "instruction": {"type": "string"},
                     "depends_on": {"type": "array", "items": {"type": "string"}},

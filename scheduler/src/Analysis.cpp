@@ -8,7 +8,10 @@ namespace ats {
 std::vector<double> estimatedDurations(const Dag& dag, double defaultSeconds) {
   if (defaultSeconds < 0.0) throw std::invalid_argument("defaultSeconds must be >= 0");
   std::vector<double> d(dag.size());
-  for (NodeId n = 0; n < dag.size(); ++n) d[n] = dag.task(n).estimatedSeconds.value_or(defaultSeconds);
+  // before D64:
+  // for (NodeId n = 0; n < dag.size(); ++n) d[n] = dag.task(n).estimatedSeconds.value_or(defaultSeconds);
+  for (NodeId n = 0; n < dag.size(); ++n)  // an assemble task takes no time of its own (D64)
+    d[n] = dag.task(n).estimatedSeconds.value_or(dag.task(n).type == TaskType::Assemble ? 0.0 : defaultSeconds);
   return d;
 }
 

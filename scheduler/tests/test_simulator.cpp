@@ -308,3 +308,13 @@ TEST(SimulatorExpand, PlansWithoutCannedSubplansAreUnchanged) {
   EXPECT_EQ(r.graph->size(), companyResearch().size());
   EXPECT_DOUBLE_EQ(r.makespan, 65.0);
 }
+
+// D64: an assemble node completes the moment it is ready, without a worker and without time.
+TEST(Simulator, AssembleTakesNoWorkerAndNoTime) {
+  json a = task("t4", {"t3", "t1", "t2"}, "assemble");
+  Dag dag = mustBuild(planFile({timed("t1", {}, 10), timed("t2", {}, 20), timed("t3", {"t1", "t2"}, 5), a}));
+  SimReport r = simulate(dag, config(2));
+  ASSERT_TRUE(r.succeeded);
+  EXPECT_DOUBLE_EQ(r.makespan, 25.0);  // t2 (20) then t3 (5); t4 adds nothing
+  EXPECT_EQ(estimatedDurations(dag, 30.0)[3], 0.0);
+}

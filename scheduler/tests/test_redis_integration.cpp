@@ -332,3 +332,11 @@ TEST_F(RedisFixture, JanitorAcksADeadWorkersEntryOnlyAfterItsAttemptIsLost) {
   ASSERT_EQ(next.size(), 1u);
   EXPECT_NE(next[0].data.find("req_test:t1:2"), std::string::npos);
 }
+
+// D64: atsd commits an assemble task's result with SET NX, like a worker: the first write wins.
+TEST_F(RedisFixture, SetNxStoresOnlyTheFirstValue) {
+  auto b = bus();
+  EXPECT_TRUE(b->setNx("result:r:t9", R"({"content":"first"})"));
+  EXPECT_FALSE(b->setNx("result:r:t9", R"({"content":"second"})"));
+  EXPECT_EQ(b->get("result:r:t9"), std::optional<std::string>(R"({"content":"first"})"));
+}

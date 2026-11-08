@@ -154,14 +154,28 @@ def normalize_llm_output(raw: Any) -> Any:
 
 def attach_request(plan: ExecutionPlan, request: str) -> ExecutionPlan:
     """The plan with the user's request appended to the instruction of every final task (one that no
-    other task depends on), cut so the instruction stays within MAX_INSTRUCTION_CHARS (D61)."""
+    other task depends on), cut so the instruction stays within MAX_INSTRUCTION_CHARS (D61).
+    An assemble sink makes no LLM call (D64), so the request goes to the tasks it joins that combine
+    others (those with dependencies of their own), or to its first input if none does."""
     request = request.strip()
     if not request:
         return plan
     used = {d for t in plan.tasks for d in t.depends_on}
+    by_id = {t.id: t for t in plan.tasks}
+    targets: set[str] = set()
+    for t in plan.tasks:
+        if t.id in used:
+            continue
+        if t.type != TaskType.assemble:
+            targets.add(t.id)
+            continue
+        combining = [d for d in t.depends_on if d in by_id and by_id[d].depends_on]
+        targets.update(combining or t.depends_on[:1])
     tasks = []
     for t in plan.tasks:
-        if t.id not in used and request not in t.instruction:
+        # before D64:
+        # if t.id not in used and request not in t.instruction:
+        if t.id in targets and t.type != TaskType.assemble and request not in t.instruction:
             room = MAX_INSTRUCTION_CHARS - len(t.instruction) - len(REQUEST_HEADER)
             if room >= 40:  # too little room left: keep the planner's instruction as it is
                 text = request if len(request) <= room else request[: room - 3].rstrip() + "..."

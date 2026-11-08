@@ -16,6 +16,9 @@ from .executors import Executor, LLMExecutor, PermanentError, SimExecutor
 from .faults import FaultConfig
 
 ALL_TYPES: tuple[TaskType, ...] = tuple(TaskType)
+# Types a worker runs. assemble is completed inside atsd and never dispatched (D64), so no LLM
+# executor (and no prompt file) exists for it.
+WORKER_TYPES: tuple[TaskType, ...] = tuple(t for t in TaskType if t != TaskType.assemble)
 
 
 class ExecutorRegistry:
@@ -51,6 +54,8 @@ def default_registry(sim_time_scale: float = 1.0, sim_default_seconds: float = 1
         from .executors.llm import make_client
 
         client = make_client()  # one Groq client shared by the per-type executors
-        for task_type in ALL_TYPES:
+        # before D64:
+        # for task_type in ALL_TYPES:
+        for task_type in WORKER_TYPES:
             registry.register(LLMExecutor(task_type, client=client), types=[task_type])
     return registry

@@ -49,6 +49,9 @@ class FakeBus final : public ats::Bus {
     if (it == strings.end()) return std::nullopt;
     return it->second;
   }
+  bool setNx(const std::string& key, const std::string& value) override {  // D64
+    return strings.emplace(key, value).second;
+  }
   // Janitor: `workerPending` plays the workers group's pending list on tasks:* streams.
   std::vector<ats::PendingEntry> pending(const std::string& stream, const std::string& group, std::int64_t minIdleMs,
                                          const std::string& afterId, int count) override {
@@ -1189,4 +1192,84 @@ TEST(ServiceSpeculation, TheJanitorLeavesTheLiveBackupAlone) {
   EXPECT_EQ(f.svc.runJanitor(), 0u);  // both attempts of t4 are live
   completedIn(f, "req_test", "t4", 2, 900);
   EXPECT_EQ(f.svc.runJanitor(), 2u);
+}
+
+// ---------------------------------------------------------------- assemble (D64)
+
+namespace {
+// t1, t2 research; t3 compare(t1, t2); t4 assemble(t3, t1, t2)
+json assembleFile() {
+  json t1 = task("t1"), t2 = task("t2");
+  t1["title"] = "Apple";
+  t2["title"] = "NVIDIA";
+  json t3 = task("t3", {"t1", "t2"}, "compare");
+  t3["title"] = "Comparison";
+  return planFile({t1, t2, t3, task("t4", {"t3", "t1", "t2"}, "assemble")});
+}
+
+void commitOutput(Fixture& f, const std::string& tid, const json& output) {
+  f.bus.strings["result:req_test:" + tid] = output.dump();
+  f.completed("req_test", tid, 1);
+}
+}  // namespace
+
+TEST(ServiceAssemble, JoinsTheInputsInsideAtsdWithoutDispatching) {
+  Fixture f;
+  f.submit(assembleFile());
+  commitOutput(f, "t1", {{"content", "Apple makes phones."}, {"key_points", {"phones"}}, {"final_answer", nullptr}});
+  commitOutput(f, "t2", {{"content", "## NVIDIA (chips)\n\nNVIDIA makes GPUs."}, {"key_points", {"GPUs"}}});
+  commitOutput(f, "t3", {{"content", "NVIDIA grew faster."}, {"key_points", {"NVIDIA ahead"}},
+                         {"final_answer", "NVIDIA"}});
+
+  for (const auto& id : f.dispatched()) EXPECT_EQ(id.find(":t4:"), std::string::npos) << id;
+  EXPECT_EQ(f.bus.taskState("req_test", "t4"), "COMPLETED");
+  EXPECT_EQ(f.bus.hashes["request:req_test"]["status"], "SUCCEEDED");
+  EXPECT_EQ(f.bus.hashes["request:req_test"]["sink"], "t4");
+  const json out = json::parse(f.bus.strings.at("result:req_test:t4"));
+  // depends_on order (the comparison first); a section that starts with a heading keeps its own.
+  EXPECT_EQ(out["content"],
+            "## Comparison\n\nNVIDIA grew faster.\n\n## Apple\n\nApple makes phones.\n\n## NVIDIA (chips)\n\nNVIDIA makes GPUs.");
+  EXPECT_EQ(out["key_points"], (json{"NVIDIA ahead", "phones", "GPUs"}));
+  EXPECT_EQ(out["final_answer"], "NVIDIA");
+  EXPECT_EQ(f.svc.stats().assembled, 1u);
+  EXPECT_THAT(loggedEvents(f, "assembled"), ::testing::ElementsAre(::testing::StartsWith("3 inputs, ")));
+}
+
+TEST(ServiceAssemble, IgnoresTheCapacityCap) {
+  ats::ServiceConfig cfg = simConfig(1);  // one slot: assemble must not wait for it
+  Fixture f(cfg);
+  f.submit(planFile({task("t1"), task("t2", {"t1"}, "assemble"), task("t3")}));
+  f.bus.strings["result:req_test:t1"] = json{{"content", "x"}, {"key_points", json::array()}}.dump();
+  f.completed("req_test", "t1", 1);  // t3 takes the slot; t2 completes anyway
+  EXPECT_EQ(f.bus.taskState("req_test", "t2"), "COMPLETED");
+  EXPECT_EQ(f.bus.taskState("req_test", "t3"), "QUEUED");
+}
+
+TEST(ServiceAssemble, AMissingInputResultFailsTheTask) {
+  Fixture f;
+  f.submit(planFile({task("t1"), task("t2", {"t1"}, "assemble")}));
+  f.completed("req_test", "t1", 1);  // reported committed, but no result under the key
+  EXPECT_EQ(f.bus.taskState("req_test", "t2"), "FAILED");
+  EXPECT_EQ(f.bus.hashes["request:req_test"]["status"], "FAILED");
+}
+
+TEST(ServiceAssemble, AnArtifactInputIsReferencedNotInlined) {
+  Fixture f;
+  f.submit(planFile({task("t1"), task("t2", {"t1"}, "assemble")}));
+  f.bus.strings["result:req_test:t1"] = json{{"artifact", "req_test-t1-1.json"}, {"bytes", 70000}}.dump();
+  f.completed("req_test", "t1", 1);
+  const json out = json::parse(f.bus.strings.at("result:req_test:t2"));
+  EXPECT_NE(out["content"].get<std::string>().find("stored as an artifact"), std::string::npos);
+}
+
+TEST(ServiceAssemble, AfterARestartAnExistingResultIsKept) {
+  Fixture f;
+  f.bus.strings["result:req_test:t1"] = json{{"content", "x"}, {"key_points", json::array()}}.dump();
+  f.bus.strings["result:req_test:t2"] = json{{"content", "kept"}, {"key_points", json::array()}}.dump();
+  f.bus.hashes["request:req_test"]["task:t1"] = json{{"state", "COMPLETED"}, {"attempt", 1}}.dump();
+  f.bus.pendingRequests.push_back({"requests", "1-0", planFile({task("t1"), task("t2", {"t1"}, "assemble")}).dump()});
+  f.svc.recoverPending();
+  f.svc.tick();
+  EXPECT_EQ(f.bus.hashes["request:req_test"]["status"], "SUCCEEDED");
+  EXPECT_EQ(json::parse(f.bus.strings.at("result:req_test:t2"))["content"], "kept");
 }

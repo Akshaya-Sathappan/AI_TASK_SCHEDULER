@@ -1,0 +1,18 @@
+{
+  "request_id": "req_fixture_assemble_no_inputs",
+  "created_at": "2026-11-07T00:00:00Z",
+  "plan": {
+    "schema_version": 1,
+    "summary": "An assemble task with nothing to join",
+    "tasks": [
+      {
+        "id": "t1",
+        "type": "assemble",
+        "title": "Nothing",
+        "instruction": "Join nothing.",
+        "depends_on": [],
+        "hints": null
+      }
+    ]
+  }
+}

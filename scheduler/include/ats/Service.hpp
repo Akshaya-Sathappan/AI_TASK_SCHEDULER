@@ -100,6 +100,7 @@ class Service {
     std::size_t janitorRuns = 0, janitorAcked = 0;  // D49
     std::size_t expansions = 0, splicedTasks = 0, rejectedExpansions = 0;  // D53
     std::size_t speculativeAttempts = 0, speculativeWins = 0, backupTakeovers = 0;  // D56
+    std::size_t assembled = 0;  // D64: assemble tasks completed inside atsd
     std::size_t dispatched = 0, retries = 0, lostAttempts = 0;
     std::size_t duplicateCompletions = 0, ignoredEvents = 0;
   };
@@ -172,6 +173,8 @@ class Service {
   std::optional<double> durationQuantile(const std::string& type) const;
   std::string taskMessage(const RequestRun& req, NodeId n, int attempt, std::int64_t deadlineMs) const;
   bool spliceExpansion(RequestRun& req, NodeId e, const std::string& worker, int attempt);
+  // D64: write an assemble task's result (its inputs' texts joined); the error if an input is missing.
+  std::optional<std::string> assemble(RequestRun& req, NodeId n);
 
   Bus& bus_;
   ServiceConfig config_;

@@ -119,6 +119,13 @@ def build_timeline(events: list[dict[str, Any]]) -> dict[str, Any]:
         if kind in ("completed", "join_completed", "failed", "cancelled"):
             finished = ts if finished is None else max(finished, ts)
 
+    # A task completed inside atsd (an assemble task, D64) has no dispatch: a point, like a join.
+    for key, a in list(attempts.items()):
+        if a["dispatched"] is None and a["started"] is None and a["outcome"] == "completed":
+            joins.append({"task": a["task"], "at": a["end"]})
+            del attempts[key]
+    # before D64:
+    # bars = sorted(attempts.values(), key=lambda a: (a["dispatched"] if a["dispatched"] is not None else 1e18))
     bars = sorted(attempts.values(), key=lambda a: (a["dispatched"] if a["dispatched"] is not None else 1e18))
     last = max([e.get("ts_ms", start) - start for e in events] + [0])
     return {"available": True, "start_ms": start, "end_ms": last, "finished_ms": finished,

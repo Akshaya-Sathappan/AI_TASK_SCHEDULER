@@ -9,7 +9,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 MAX_TASKS = 50
 MAX_SUBPLAN_TASKS = 20
@@ -25,6 +25,7 @@ class TaskType(str, Enum):
     compare = "compare"
     report = "report"
     expand = "expand"  # produces a subplan at runtime (section 8.11)
+    assemble = "assemble"  # completed inside atsd: its inputs' texts joined, no LLM call (D64)
 
 
 class SubplanTaskType(str, Enum):
@@ -81,6 +82,12 @@ class PlannedTask(BaseModel):
     instruction: str = Field(min_length=1, max_length=2000)
     depends_on: list[str] = Field(default_factory=list)
     hints: Hints | None = None
+
+    @model_validator(mode="after")
+    def _assemble_has_inputs(self) -> "PlannedTask":  # D64, mirrored by atsd's plan loader
+        if self.type == TaskType.assemble and not self.depends_on:
+            raise ValueError("an assemble task needs at least one dependency")
+        return self
 
 
 class ExecutionPlan(BaseModel):
