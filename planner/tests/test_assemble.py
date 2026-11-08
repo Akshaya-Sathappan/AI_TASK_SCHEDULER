@@ -56,4 +56,5 @@ def test_planner_prompt_asks_for_identical_item_instructions():  # D65
     from planner.llm import load_system_prompt
 
     text = load_system_prompt()
-    assert "SAME instruction text word for word" in text and '"Item: <name>"' in text
+    # before D66: assert "SAME instruction text word for word" in text and '"Item: <name>"' in text
+    assert "same instruction word for word" in text and '"Item: <name>"' in text

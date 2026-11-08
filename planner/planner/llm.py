@@ -15,7 +15,7 @@ from importlib import resources
 from typing import Any
 
 from . import provider
-from .schema import ExecutionPlan, IssueCode, TaskType, ValidationIssue
+from .schema import MAX_TASKS, ExecutionPlan, IssueCode, TaskType, ValidationIssue
 from .validate import validate_plan
 
 DEFAULT_MODEL = "openai/gpt-oss-120b"  # supports Groq strict structured outputs
@@ -184,6 +184,60 @@ def attach_request(plan: ExecutionPlan, request: str) -> ExecutionPlan:
     return plan.model_copy(update={"tasks": tasks})
 
 
+# The planner adds the assemble step itself (D66) instead of relying on the prompt: in E7 the model
+# ended only 2 of 4 wide plans with assemble, and the other two answers were 3-4k character summaries
+# against the single call's 17-26k. ATS_AUTO_ASSEMBLE=0 turns it off.
+AUTO_ASSEMBLE_ENV = "ATS_AUTO_ASSEMBLE"
+AUTO_ASSEMBLE_MIN_ITEMS = 3
+ITEM_TYPES = (TaskType.research, TaskType.summarize, TaskType.analyze)
+COMBINE_TYPES = (TaskType.compare, TaskType.report)
+ITEM_REQUEST_HEADER = "The user's request (write only this item's part of it, in full, as the request asks):\n"
+COMBINED_ONLY = ("\n\nWrite only the combined part the request asks for (the comparison, ranking or summary). "
+                 "Do not repeat the per-item sections: they are added to the answer in full after yours.")
+
+
+def add_assemble(plan: ExecutionPlan, request: str = "") -> ExecutionPlan:
+    """A wide plan ending in one compare/report task over at least AUTO_ASSEMBLE_MIN_ITEMS per-item tasks
+    gets an assemble task after it (D64), so the answer carries every item's full section without a model
+    rewriting them; the final task is told to write only the combined part. Each item task's instruction
+    starts with the user's request, so its section covers what the request asks for even when the
+    planner's instruction is brief; the request is the same for every item, so it is part of the prefix
+    the provider can cache (D65). Plans with an expand or assemble task, or any other shape, are
+    returned unchanged, as is any result that would not validate."""
+    by_id = {t.id: t for t in plan.tasks}
+    if any(t.type in (TaskType.expand, TaskType.assemble) for t in plan.tasks):
+        return plan
+    used = {d for t in plan.tasks for d in t.depends_on}
+    sinks = [t for t in plan.tasks if t.id not in used]
+    if len(sinks) != 1 or sinks[0].type not in COMBINE_TYPES or len(plan.tasks) >= MAX_TASKS:
+        return plan
+    sink = sinks[0]
+    items = [d for d in sink.depends_on if d in by_id and by_id[d].type in ITEM_TYPES]
+    if len(items) < AUTO_ASSEMBLE_MIN_ITEMS:
+        return plan
+    instruction = sink.instruction
+    if len(instruction) + len(COMBINED_ONLY) <= MAX_INSTRUCTION_CHARS:
+        instruction += COMBINED_ONLY
+    next_id = 1 + max(int(t.id[1:]) for t in plan.tasks if t.id[1:].isdigit())
+    request = request.strip()
+
+    def with_request(t):
+        text = ITEM_REQUEST_HEADER + request + "\n\n" + t.instruction
+        if not request or request in t.instruction or len(text) > MAX_INSTRUCTION_CHARS:
+            return t
+        return t.model_copy(update={"instruction": text})
+
+    tasks = [t.model_copy(update={"instruction": instruction}) if t.id == sink.id
+             else with_request(t) if t.id in items else t for t in plan.tasks]
+    raw = plan.model_dump(mode="json")
+    raw["tasks"] = [t.model_dump(mode="json") for t in tasks] + [{
+        "id": f"t{next_id}", "type": "assemble", "title": "Full answer",
+        "instruction": "Join the combined part and every item's full section.",
+        "depends_on": [sink.id, *items], "hints": {"estimated_seconds": 0}}]
+    result = validate_plan(raw)
+    return result.value if result.ok else plan
+
+
 def load_system_prompt() -> str:
     return resources.files("planner").joinpath("prompts/planner_system.md").read_text()
 
@@ -217,6 +271,8 @@ class GroqPlanner(Planner):
 
     def generate_plan(self, request: str) -> ExecutionPlan:
         plan = super().generate_plan(request)
+        if os.environ.get(AUTO_ASSEMBLE_ENV, "1") != "0":
+            plan = add_assemble(plan, request)  # D66, before D61 so the request goes to the combining task
         if os.environ.get(ATTACH_REQUEST_ENV, "1") == "0":
             return plan
         return attach_request(plan, request)  # D61
@@ -277,5 +333,6 @@ __all__ = [
     "LLM_PLAN_SCHEMA",
     "PlanRejected",
     "Planner",
+    "add_assemble",
     "attach_request",
 ]

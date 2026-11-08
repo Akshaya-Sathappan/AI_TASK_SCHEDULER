@@ -250,7 +250,7 @@ docs/contract.md                 contract #1: plan file format, issue codes, par
 docs/messages.md                 contract #2 (frozen): task messages, events and result values; request intake/status (proposed)
 docs/REPORT.md                   architecture, decisions, results (E1–E8), limitations
 docs/DEMO.md                     demo / video script
-docs/DECISIONS.md                decisions made during the build (D15, D17–D58, D60–D65)
+docs/DECISIONS.md                decisions made during the build (D15, D17–D58, D60–D66)
 schemas/                         JSON Schema generated from planner/planner/schema.py and messages.py (do not edit by hand)
 examples/plans/                  shared fixtures (plan files with the envelope)
 examples/messages/               JSON examples of every task message and event (contract #2)
@@ -592,4 +592,13 @@ Providers cache the processed beginning of a prompt and reuse it when the next c
 cd bench && uv run --env-file ../.env python -m bench.e7 --case wide_six_companies --case wide_eight_countries \
   --cooldown 0 --out results/e7_cache.csv && cd ..
 ```
+
+## The planner adds assemble itself; a shorter planner prompt (D66)
+
+E7, atsd vs one LLM call, with D64 and D65: when the plan ended in assemble, atsd's answer was as long as the single call's or longer (18.5k vs 17.9k, 25.3k vs 16.4k characters) for +0.15 s and +0.6 s; but the model chose assemble in only 2 of 4 plans (the other answers were 3-4k), and the planner took 1.1-1.25 s, 25-36 % of atsd's latency and the whole gap to the single call.
+
+- [x] `add_assemble` (planner/llm.py): a plan whose single final task is a compare or report over at least 3 research/summarize/analyze tasks gets an assemble task after it, in code; the final task is told to write only the combined part, and each item task's instruction starts with the user's request (the same text for every item, so it is part of the cached prefix). Plans of any other shape, or with expand/assemble, are unchanged. `ATS_AUTO_ASSEMBLE=0` turns it off
+- [x] Planner prompt 4,338 -> 3,217 characters: the assemble rule is gone (the runtime adds it), the per-item rule and the no-expand rule are one line each, and per-item instructions are brief (the planner writes that text once per item)
+- [x] 4 planner tests (wide plan, other shapes unchanged, request placement, switch)
+- [ ] Rerun atsd vs single (`python -m bench.e7_vs ...`): every wide case should now show tasks = LLM tasks + 1, answers near the single call's length, and a shorter planner time
 
