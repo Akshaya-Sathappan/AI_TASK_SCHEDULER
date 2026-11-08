@@ -32,14 +32,14 @@ from planner.paths import EVAL_CASES
 from planner.schema import ExecutionPlan, TaskType
 from worker.executors.base import ExecutionContext, RetryableError
 from planner import provider
-from worker.executors.llm import DEFAULT_EXECUTOR_MODEL, LLMExecutor, make_client
+from worker.executors.llm import DEFAULT_EXECUTOR_MODEL, LLMExecutor, cached_tokens, make_client
 
 from . import live
 from .sim import RESULTS_DIR, write_csv
 
 CASES = ("two_companies", "four_companies", "mostly_sequential")
 FIELDS = ("case", "mode", "status", "latency_s", "planner_s", "planner_share", "exec_s", "tasks", "llm_calls",
-          "tokens_in", "tokens_out", "cost_usd", "retries", "output_chars", "request_id")
+          "tokens_in", "tokens_out", "tokens_cached", "cost_usd", "retries", "output_chars", "request_id")
 SINGLE_PROMPT = ("You are a careful analyst. Answer the user's request completely in one response: do all the "
                  "research, summaries and comparisons it asks for and finish with the requested report, in Markdown. "
                  "Answer from your own knowledge.")
@@ -66,6 +66,7 @@ async def _sequential(p: ExecutionPlan, request_id: str, client: Any) -> dict[st
     tasks = {t.id: t for t in p.tasks}
     results: dict[str, Any] = {}
     tokens, calls, retries = [0, 0], 0, 0
+    cached = 0
     t0 = time.monotonic()
     for tid in _order(p):
         t = tasks[tid]
@@ -92,8 +93,10 @@ async def _sequential(p: ExecutionPlan, request_id: str, client: Any) -> dict[st
         results[tid] = r.output
         tokens[0] += r.tokens_in or 0
         tokens[1] += r.tokens_out or 0
+        cached += r.tokens_cached or 0  # D65
     sink = [t.id for t in p.tasks if not any(t.id in o.depends_on for o in p.tasks)][-1]
     return {"status": "SUCCEEDED", "seconds": time.monotonic() - t0, "tokens_in": tokens[0], "tokens_out": tokens[1],
+            "tokens_cached": cached,
             "llm_calls": calls, "retries": retries, "output": results[sink]}
 
 
@@ -120,6 +123,7 @@ async def _single(request: str, client: Any) -> dict[str, Any]:
             await asyncio.sleep(max(live._retry_after(exc, 2.0), min(32, 2 ** attempt)))
     u = r.usage
     return {"status": "SUCCEEDED", "seconds": time.monotonic() - t0, "tokens_in": u.prompt_tokens,
+            "tokens_cached": cached_tokens(u),
             "tokens_out": u.completion_tokens, "llm_calls": attempt, "retries": retries,
             "output": r.choices[0].message.content or ""}
 
@@ -128,12 +132,16 @@ def _row(case: str, mode: str, planned: live.Planned | None, r: dict[str, Any], 
     planner_s = planned.seconds if planned else 0.0
     tin = r.get("tokens_in", 0) + (planned.tokens_in if planned else 0)
     tout = r.get("tokens_out", 0) + (planned.tokens_out if planned else 0)
+    tcached = r.get("tokens_cached", 0) + (planned.tokens_cached if planned else 0)  # D65
     latency = planner_s + r["seconds"]
     return {"case": case, "mode": mode, "status": r["status"], "latency_s": round(latency, 2),
             "planner_s": round(planner_s, 2), "planner_share": round(planner_s / latency, 3) if latency else 0,
             "exec_s": round(r["seconds"], 2), "tasks": tasks,
             "llm_calls": r.get("llm_calls", 0) + (planned.calls if planned else 0),
-            "tokens_in": tin, "tokens_out": tout, "cost_usd": round(live.cost(tin, tout), 6),
+            # before D65:
+            # "tokens_in": tin, "tokens_out": tout, "cost_usd": round(live.cost(tin, tout), 6),
+            "tokens_in": tin, "tokens_out": tout, "tokens_cached": tcached,
+            "cost_usd": round(live.cost(tin, tout, tcached), 6),
             "retries": r.get("retries", 0), "output_chars": len(live.output_text(r.get("output"))), "request_id": rid}
 
 
@@ -158,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         d = live.run_on_stack(planned.plan, a.api)
         rows.append(_row(name, "distributed", planned, {
             "status": d.status, "seconds": d.seconds, "tokens_in": d.tokens_in, "tokens_out": d.tokens_out,
+            "tokens_cached": d.tokens_cached,
             "llm_calls": d.llm_calls, "retries": d.retries, "output": d.output}, n, d.request_id))
         print(f"  distributed {rows[-1]['latency_s']}s {d.status} retries={d.retries}", flush=True)
 

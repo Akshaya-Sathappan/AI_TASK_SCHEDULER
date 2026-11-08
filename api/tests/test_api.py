@@ -222,7 +222,8 @@ def test_include_outputs_and_usage(redis_url, r):
         full = c.get(f"/requests/{rid}?include_outputs=true").json()
     assert "outputs" not in plain and plain["output"] is None
     assert full["outputs"] == {"t1": {"content": "out t1", "key_points": []}, "t2": {"content": "out t2", "key_points": []}}
-    assert full["usage"] == {"tokens_in": 300, "tokens_out": 50, "llm_calls": 3,
+    # before D65 the usage had no tokens_cached
+    assert full["usage"] == {"tokens_in": 300, "tokens_out": 50, "llm_calls": 3, "tokens_cached": 0,
                              "by_task": {"t1": {"tokens_in": 100, "tokens_out": 20, "llm_calls": 1}}}
 
 

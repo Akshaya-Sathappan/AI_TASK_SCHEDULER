@@ -190,6 +190,7 @@ function render(st) {
     <div><span class="meta">retries</span><b>${retries}</b></div>
     <div><span class="meta">LLM calls</span><b>${usage.llm_calls ?? 0}</b></div>
     <div><span class="meta">tokens in / out</span><b>${usage.tokens_in ?? 0} / ${usage.tokens_out ?? 0}</b></div>
+    <div><span class="meta">input cached</span><b>${usage.tokens_in ? Math.round(100 * (usage.tokens_cached ?? 0) / usage.tokens_in) : 0} %</b></div>
     <div><span class="meta">final task</span><b>${esc(st.sink || "-")}</b></div></div>
     ${st.error ? `<div class="label">error</div><pre class="err">${esc(st.error)}</pre>` : ""}</div>`;
   h += `<div class="card"><h2>Final answer</h2>${st.output === null ? `<div class="meta">${FINISHED.has(st.status) ? "none" : "waiting for the final task..."}</div>` : output(st.output)}</div>`;

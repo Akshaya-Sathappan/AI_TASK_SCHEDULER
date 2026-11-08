@@ -40,6 +40,7 @@ class ExecutionResult:
     result_kind: Literal["output", "subplan"] = "output"
     tokens_in: int | None = None
     tokens_out: int | None = None
+    tokens_cached: int | None = None  # input tokens served from the provider's prompt cache (D65)
 
 
 class Executor(ABC):

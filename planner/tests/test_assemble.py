@@ -50,3 +50,10 @@ def test_assemble_rules_in_the_validator():
     assert not r.ok and [i.code.value for i in r.errors] == ["SCHEMA"] and r.errors[0].task_id == "t1"
     # an assemble task's inputs overlap on purpose: no TRANSITIVE_EDGE warning for it
     assert not [i for i in validate_plan(_plan().model_dump(mode="json")).warnings if i.code.value == "TRANSITIVE_EDGE"]
+
+
+def test_planner_prompt_asks_for_identical_item_instructions():  # D65
+    from planner.llm import load_system_prompt
+
+    text = load_system_prompt()
+    assert "SAME instruction text word for word" in text and '"Item: <name>"' in text

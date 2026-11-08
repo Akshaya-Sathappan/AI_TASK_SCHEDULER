@@ -240,13 +240,29 @@ def _task_sort_key(task_id: str) -> tuple[int, ...]:
 
 
 def build_user_message(msg: TaskMessage, inputs: dict[str, Any]) -> str:
-    parts = [f"Task type: {msg.type.value}", f"Task id: {msg.task_id}", "", "Instruction:", msg.instruction]
+    # before D65:
+    # parts = [f"Task type: {msg.type.value}", f"Task id: {msg.task_id}", "", "Instruction:", msg.instruction]
+    # D65: everything that is the same across a request's per-item tasks comes first (the system prompt,
+    # the type, the shared instruction text up to its last line "Item: <name>"), and what differs comes
+    # last (the task id, the inputs), so the provider's prompt cache can reuse the longest prefix.
+    parts = [f"Task type: {msg.type.value}", "", "Instruction:", msg.instruction, "", f"Task id: {msg.task_id}"]
     if inputs:
         parts += ["", "Results of the tasks this one depends on:"]
         limit = input_budget(len(inputs))
         for dep in sorted(inputs, key=_task_sort_key):
             parts += ["", f"--- {dep} ---", input_text(inputs[dep], limit)]
     return "\n".join(parts)
+
+
+def cached_tokens(usage: Any) -> int:
+    """Input tokens the provider served from its prompt cache (D65): usage.prompt_tokens_details.cached_tokens
+    in the OpenAI-compatible API (Groq, Hugging Face's router); 0 when the provider does not report it."""
+    details = getattr(usage, "prompt_tokens_details", None)
+    if isinstance(details, dict):
+        value = details.get("cached_tokens")
+    else:
+        value = getattr(details, "cached_tokens", None)
+    return value if isinstance(value, int) and value > 0 else 0
 
 
 def classify_provider_error(exc: Exception) -> RetryableError | PermanentError:
@@ -313,7 +329,8 @@ class LLMExecutor(Executor):
 
     async def _call(self, msg: TaskMessage, messages: list[dict[str, str]], schema_name: str,
                     schema: dict[str, Any], usage: list[int]) -> str:
-        """One model call, time-boxed to the attempt's deadline. Adds its tokens to `usage`."""
+        """One model call, time-boxed to the attempt's deadline. Adds its tokens to `usage`
+        ([in, out, cached in], D65)."""
         remaining_s = msg.deadline_ms / 1000 - self._clock()
         if remaining_s <= 0:
             raise RetryableError("deadline passed before the model call")
@@ -333,6 +350,7 @@ class LLMExecutor(Executor):
         u = getattr(response, "usage", None)
         usage[0] += getattr(u, "prompt_tokens", None) or 0
         usage[1] += getattr(u, "completion_tokens", None) or 0
+        usage[2] += cached_tokens(u)  # D65
         content = (response.choices[0].message.content or "").strip()
         if not content:
             raise RetryableError("model returned an empty answer")
@@ -342,12 +360,14 @@ class LLMExecutor(Executor):
         msg = ctx.message
         if msg.type != self.task_type:
             raise PermanentError(f"{self.task_type.value} executor got a {msg.type.value} task")
-        usage = [0, 0]
+        # before D65:
+        # usage = [0, 0]
+        usage = [0, 0, 0]
         first = [{"role": "system", "content": self.system_prompt},
                  {"role": "user", "content": build_user_message(msg, ctx.inputs)}]
         output = parse_output(await self._call(msg, first, "task_output", LLM_OUTPUT_SCHEMA, usage))
         if msg.type != TaskType.expand:
-            return ExecutionResult(output=output, tokens_in=usage[0], tokens_out=usage[1])
+            return ExecutionResult(output=output, tokens_in=usage[0], tokens_out=usage[1], tokens_cached=usage[2])
 
         # Expand, step 2: the subplan, repaired once if it fails validation (8.11, D50).
         messages = [{"role": "system", "content": load_subplan_prompt()},
@@ -365,4 +385,5 @@ class LLMExecutor(Executor):
             subplan, problems = _check_subplan(content)
             if subplan is None:
                 raise PermanentError("expand output failed subplan validation after one repair:\n" + problems)
-        return ExecutionResult(output=subplan, result_kind="subplan", tokens_in=usage[0], tokens_out=usage[1])
+        return ExecutionResult(output=subplan, result_kind="subplan", tokens_in=usage[0], tokens_out=usage[1],
+                               tokens_cached=usage[2])

@@ -419,3 +419,41 @@ def httpx_response(status, body, headers=None):
     import httpx
 
     return httpx.Response(status, json=body, headers=headers or {})
+
+
+# --- prompt caching (D65) ----------------------------------------------------------------
+
+
+def test_prompt_puts_the_task_id_after_the_instruction_so_item_tasks_share_a_prefix():
+    from worker.executors.llm import build_user_message
+
+    shared = "Write a detailed profile covering history and risks, in at least 300 words.\nItem: "
+    a, b = msg(task_id="t1"), msg(task_id="t2")
+    a = a.model_copy(update={"instruction": shared + "Apple"})
+    b = b.model_copy(update={"instruction": shared + "NVIDIA"})
+    ua, ub = build_user_message(a, {}), build_user_message(b, {})
+    common = next(i for i, (x, y) in enumerate(zip(ua, ub)) if x != y)
+    assert ua[:common] == ub[:common] and ua[:common].endswith("Item: ")  # everything up to the item matches
+    assert ua.index("Instruction:") < ua.index("Task id: t1")
+
+
+def test_cached_tokens_from_the_usage_object():
+    from worker.executors.llm import cached_tokens
+
+    assert cached_tokens(SimpleNamespace(prompt_tokens_details=SimpleNamespace(cached_tokens=512))) == 512
+    assert cached_tokens(SimpleNamespace(prompt_tokens_details={"cached_tokens": 256})) == 256
+    assert cached_tokens(SimpleNamespace(prompt_tokens_details=None)) == 0
+    assert cached_tokens(None) == 0
+
+
+def test_executor_reports_cached_tokens_from_the_provider(monkeypatch):
+    def handler(request):
+        body = {"id": "x", "object": "chat.completion", "created": 0, "model": "m",
+                "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content":
+                             json.dumps({"content": "ok", "key_points": [], "final_answer": None})}}],
+                "usage": {"prompt_tokens": 1200, "completion_tokens": 30, "total_tokens": 1230,
+                          "prompt_tokens_details": {"cached_tokens": 1024}}}
+        return httpx_response(200, body)
+
+    r = run(_hf_executor(monkeypatch, handler), msg())
+    assert (r.tokens_in, r.tokens_out, r.tokens_cached) == (1200, 30, 1024)

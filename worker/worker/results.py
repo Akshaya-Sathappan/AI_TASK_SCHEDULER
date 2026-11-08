@@ -78,14 +78,19 @@ async def commit_result(redis: Redis, key: str, output: Any, *, message: TaskMes
     return committed
 
 
-async def record_usage(redis: Redis, message: TaskMessage, tokens_in: int | None, tokens_out: int | None) -> None:
-    """Add one LLM call's tokens to usage:<request_id>, in total and for this task."""
+async def record_usage(redis: Redis, message: TaskMessage, tokens_in: int | None, tokens_out: int | None,
+                       tokens_cached: int | None = None) -> None:
+    """Add one LLM call's tokens to usage:<request_id>, in total and for this task. tokens_cached is the
+    part of tokens_in served from the provider's prompt cache (D65)."""
     if tokens_in is None and tokens_out is None:
         return  # not an LLM call (sim)
     key = keys.usage_key(message.request_id)
     t = message.task_id
     async with redis.pipeline(transaction=True) as pipe:
-        for field, n in (("tokens_in", tokens_in or 0), ("tokens_out", tokens_out or 0), ("llm_calls", 1)):
+        # before D65:
+        # for field, n in (("tokens_in", tokens_in or 0), ("tokens_out", tokens_out or 0), ("llm_calls", 1)):
+        for field, n in (("tokens_in", tokens_in or 0), ("tokens_out", tokens_out or 0), ("llm_calls", 1),
+                         ("tokens_cached", tokens_cached or 0)):
             pipe.hincrby(key, field, n)
             pipe.hincrby(key, f"{t}:{field}", n)
         await pipe.execute()

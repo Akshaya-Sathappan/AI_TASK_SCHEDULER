@@ -195,7 +195,9 @@ class Worker:
                     executor.run(ExecutionContext(message=message, inputs=inputs)), timeout=remaining_s)
             except TimeoutError:
                 raise RetryableError("attempt passed its deadline before finishing") from None
-            await record_usage(self.redis, message, result.tokens_in, result.tokens_out)
+            # before D65:
+            # await record_usage(self.redis, message, result.tokens_in, result.tokens_out)
+            await record_usage(self.redis, message, result.tokens_in, result.tokens_out, result.tokens_cached)
             committed = await commit_result(self.redis, key, result.output, message=message,
                                             artifacts_root=self.config.artifacts_dir)
             event = TaskCompleted(

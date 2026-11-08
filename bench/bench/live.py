@@ -16,6 +16,7 @@ from typing import Any
 
 from planner.llm import GroqPlanner
 from planner.schema import ExecutionPlan
+from worker.executors.llm import cached_tokens
 
 # Groq list price for openai/gpt-oss-120b, USD per million tokens (input, output), Nov 2026.
 PRICE_IN, PRICE_OUT = 0.15, 0.60
@@ -23,8 +24,15 @@ API = "http://localhost:8000"
 FINISHED = ("SUCCEEDED", "FAILED", "REJECTED")
 
 
-def cost(tokens_in: int, tokens_out: int) -> float:
-    return (tokens_in * PRICE_IN + tokens_out * PRICE_OUT) / 1e6
+# Groq bills input tokens served from its prompt cache at half price (gpt-oss, D65).
+CACHED_DISCOUNT = 0.5
+
+
+def cost(tokens_in: int, tokens_out: int, tokens_cached: int = 0) -> float:
+    # before D65:
+    # return (tokens_in * PRICE_IN + tokens_out * PRICE_OUT) / 1e6
+    cached = min(max(tokens_cached, 0), tokens_in)  # part of tokens_in
+    return ((tokens_in - cached) * PRICE_IN + cached * PRICE_IN * (1 - CACHED_DISCOUNT) + tokens_out * PRICE_OUT) / 1e6
 
 
 def cooldown(seconds: float) -> None:
@@ -42,6 +50,7 @@ class Planned:
     tokens_out: int
     calls: int
     attempts: int
+    tokens_cached: int = 0  # part of tokens_in served from the provider's prompt cache (D65)
 
 
 class CountingPlanner(GroqPlanner):
@@ -52,6 +61,7 @@ class CountingPlanner(GroqPlanner):
         if system_prompt is not None:
             self.system_prompt = system_prompt
         self.usage = [0, 0, 0]
+        self.cached = 0  # D65
 
     def propose(self, request, feedback=None):
         for _ in range(8):
@@ -68,6 +78,7 @@ class CountingPlanner(GroqPlanner):
         self.usage[0] += getattr(u, "prompt_tokens", 0) or 0
         self.usage[1] += getattr(u, "completion_tokens", 0) or 0
         self.usage[2] += 1
+        self.cached += cached_tokens(u)  # D65
         return raw
 
 
@@ -75,7 +86,9 @@ def plan(request: str, system_prompt: str | None = None) -> Planned:
     p = CountingPlanner(system_prompt)
     t0 = time.monotonic()
     result = p.generate_plan(request)
-    return Planned(result, time.monotonic() - t0, p.usage[0], p.usage[1], p.usage[2], p.last_attempts)
+    # before D65:
+    # return Planned(result, time.monotonic() - t0, p.usage[0], p.usage[1], p.usage[2], p.last_attempts)
+    return Planned(result, time.monotonic() - t0, p.usage[0], p.usage[1], p.usage[2], p.last_attempts, p.cached)
 
 
 def _retry_after(exc: Exception, default: float) -> float:
@@ -104,6 +117,7 @@ class Run:
     retries: int  # attempts beyond the first, over all tasks
     tasks: list[dict[str, Any]] = field(default_factory=list)
     output: Any = None
+    tokens_cached: int = 0  # D65
 
 
 def run_on_stack(p: ExecutionPlan, api: str = API, timeout_s: float = 1800) -> Run:
@@ -120,7 +134,8 @@ def run_on_stack(p: ExecutionPlan, api: str = API, timeout_s: float = 1800) -> R
     seconds = time.monotonic() - t0
     usage = st.get("usage") or {}
     return Run(rid, st["status"], seconds, usage.get("tokens_in", 0), usage.get("tokens_out", 0),
-               usage.get("llm_calls", 0), sum(max(0, t["attempt"] - 1) for t in st["tasks"]), st["tasks"], st["output"])
+               usage.get("llm_calls", 0), sum(max(0, t["attempt"] - 1) for t in st["tasks"]), st["tasks"], st["output"],
+               usage.get("tokens_cached", 0))
 
 
 def atsd_events(request_id: str) -> list[dict[str, Any]]:

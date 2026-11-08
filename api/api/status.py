@@ -21,7 +21,9 @@ from planner.schema import PlanFile
 
 SUBMITTED = "SUBMITTED"
 FINISHED = ("SUCCEEDED", "FAILED", "REJECTED")
-USAGE_FIELDS = ("tokens_in", "tokens_out", "llm_calls")
+# before D65:
+# USAGE_FIELDS = ("tokens_in", "tokens_out", "llm_calls")
+USAGE_FIELDS = ("tokens_in", "tokens_out", "llm_calls", "tokens_cached")  # tokens_cached: part of tokens_in (D65)
 
 
 def _sinks(plan_file: PlanFile) -> list[str]:

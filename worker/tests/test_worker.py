@@ -409,3 +409,16 @@ def test_sim_tasks_record_no_usage(redis_url):
         assert await r.exists(keys.usage_key(RID)) == 0
 
     run_body(redis_url, body)
+
+
+def test_cached_input_tokens_are_recorded_with_the_usage(redis_url):  # D65
+    from worker.results import record_usage
+
+    async def body(r):
+        await record_usage(r, msg("t1"), 1200, 30, 1024)
+        await record_usage(r, msg("t2"), 800, 20)  # a provider that does not report the cache
+        usage = await r.hgetall(keys.usage_key(RID))
+        assert (usage["tokens_in"], usage["tokens_cached"], usage["t1:tokens_cached"]) == ("2000", "1024", "1024")
+        assert usage["t2:tokens_cached"] == "0"
+
+    run_body(redis_url, body)

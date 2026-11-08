@@ -250,7 +250,7 @@ docs/contract.md                 contract #1: plan file format, issue codes, par
 docs/messages.md                 contract #2 (frozen): task messages, events and result values; request intake/status (proposed)
 docs/REPORT.md                   architecture, decisions, results (E1–E8), limitations
 docs/DEMO.md                     demo / video script
-docs/DECISIONS.md                decisions made during the build (D15, D17–D58, D60–D64)
+docs/DECISIONS.md                decisions made during the build (D15, D17–D58, D60–D65)
 schemas/                         JSON Schema generated from planner/planner/schema.py and messages.py (do not edit by hand)
 examples/plans/                  shared fixtures (plan files with the envelope)
 examples/messages/               JSON examples of every task message and event (contract #2)
@@ -576,5 +576,20 @@ The workflow's final report summarised the per-item sections (4–5k characters)
 make build && make test && make down && make up-hf
 cd bench && uv run --env-file ../.env python -m bench.e7 --case wide_six_companies --case wide_eight_countries \
   --case wide_five_languages --case wide_six_cities --cooldown 0 --out results/e7_assemble.csv && cd ..
+```
+
+## Prompt templates and prompt caching (D65)
+
+Providers cache the processed beginning of a prompt and reuse it when the next call starts with exactly the same tokens (Groq: automatic for gpt-oss, cached input at half price). Per-item tasks of a wide request are the same prompt apart from the item, so:
+
+- [x] Worker prompt order: system prompt, task type, instruction, and only then the task id and the inputs (the id used to be the second line, which ended every shared prefix right after the system prompt)
+- [x] Planner rule 11: per-item tasks get the same instruction word for word, with the item only in a last line `Item: <name>`
+- [x] Cached input tokens are measured, not assumed: the worker reads `usage.prompt_tokens_details.cached_tokens` and records `tokens_cached` in `usage:<request>` (in total and per task); `GET /requests/{id}` returns it, the monitor shows the cached share, E7 has a `tokens_cached` column and its cost bills cached input at half price
+- [x] 6 tests (prompt prefix shared up to the item, cached tokens from the provider's usage, recorded per task, cost model, planner rule)
+- [ ] Rerun the wide E7 cases and read `tokens_cached` and `cost_usd`. Expected (design note): a few percent to about 11 % lower cost, because input is under a quarter of the cost; output tokens are not cached
+
+```bash
+cd bench && uv run --env-file ../.env python -m bench.e7 --case wide_six_companies --case wide_eight_countries \
+  --cooldown 0 --out results/e7_cache.csv && cd ..
 ```
 
