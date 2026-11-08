@@ -69,7 +69,9 @@ def test_check_rejects_unknown_assertion():
 def test_eval_cases_file():
     cases = ev.load_cases()
     assert set(cases) == {"two_companies", "four_companies", "mostly_sequential", "document_batch", "trivial",
-                          "top_chip_companies", "largest_cloud_providers", "trending_databases"}
+                          "top_chip_companies", "largest_cloud_providers", "trending_databases",
+                          "wide_six_companies", "wide_eight_countries", "wide_five_languages",
+                          "wide_six_cities"}
     open_ended = [c for c in cases.values() if "expand" in c["expect"].get("require_types", [])]
     assert len(open_ended) == 3 and all(c["expect"]["expand_reaches_sink"] for c in open_ended)
     assert all(c["request"].strip() for c in cases.values())

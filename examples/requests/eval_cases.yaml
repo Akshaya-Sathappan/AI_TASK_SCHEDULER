@@ -89,3 +89,42 @@ cases:
       expand_consumed_once: true
       single_sink: true
 
+  wide_six_companies:
+    request: >-
+      Write a detailed profile of each of these six companies: Apple, NVIDIA, AMD,
+      Microsoft, Intel and Qualcomm. For each one cover its history, main products,
+      business model, recent strategy and biggest risks, in at least 300 words.
+      Then compare them and write a final report ranking their prospects.
+    expect:
+      independent: {type: [research, summarize, analyze], min: 6}
+      single_sink: true
+
+  wide_eight_countries:
+    request: >-
+      Write a detailed economic briefing on each of these eight countries: Japan,
+      Germany, India, Brazil, Nigeria, Canada, Indonesia and Mexico. For each one
+      cover GDP and growth, main industries, trade partners, and key challenges,
+      in at least 250 words. Then write a summary comparing all eight.
+    expect:
+      independent: {type: [research, summarize, analyze], min: 8}
+      single_sink: true
+
+  wide_five_languages:
+    request: >-
+      Write a detailed guide to each of these five programming languages: Python,
+      Rust, Go, Java and TypeScript. For each one explain its design goals, typical
+      uses, strengths, weaknesses and a short example program, in at least 300
+      words. Then recommend which to learn first for different career goals.
+    expect:
+      independent: {type: [research, summarize, analyze], min: 5}
+      single_sink: true
+
+  wide_six_cities:
+    request: >-
+      Write a detailed travel guide for each of these six cities: Tokyo, Paris,
+      New York, Cairo, Rio de Janeiro and Sydney. For each one cover the best time
+      to visit, top sights, food, transport and a three-day itinerary, in at least
+      300 words. Then compare them for a first-time traveller.
+    expect:
+      independent: {type: [research, summarize, analyze], min: 6}
+      single_sink: true
